@@ -28,3 +28,10 @@ def test_queue_service_does_not_import_publishers() -> None:
         PROJECT_ROOT / "content_hub" / "services" / "publication_queue.py"
     ).read_text(encoding="utf-8")
     assert "content_hub.publishers" not in source
+
+
+def test_status_service_does_not_import_publishers() -> None:
+    source = (
+        PROJECT_ROOT / "content_hub" / "services" / "publication_status.py"
+    ).read_text(encoding="utf-8")
+    assert "content_hub.publishers" not in source

@@ -277,6 +277,7 @@ telegram/{telegram_chat_id}/{telegram_post_id}/{sort_order}_{telegram_file_uniqu
 Правила:
 
 - каждая задача работает независимо;
+- DB-only `PublicationStatusService` управляет переходами статусов без запуска worker и без вызова внешних publisher API;
 - задача сначала ставит свой статус в `Publishing`;
 - при успехе сохраняет `external_post_id`, `external_url`, `last_api_response` и статус `Success`;
 - при временной ошибке ставит `Retry` и `next_retry_at`;

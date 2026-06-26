@@ -22,6 +22,7 @@ It covers:
 - no duplicate jobs after repeated webhook delivery;
 - unique `publication_jobs(post_id, platform)` constraint;
 - `Post.status = queued` after jobs are created;
+- DB-only publication job lifecycle: start, success, error, aggregate partial status, and manual retry;
 - saved `PublicationLog` row.
 
 It does not perform Telegram file downloads, S3 uploads, worker execution, or publisher API calls. It also does not cover Dramatiq, Instagram, VK, Facebook API, admin UI, AI, Stories, WhatsApp, or media groups.
@@ -78,6 +79,7 @@ Apply migration and run smoke:
 ```bash
 .venv/bin/alembic -c content_hub/alembic.ini upgrade head
 .venv/bin/python scripts/postgres_webhook_smoke.py
+.venv/bin/python scripts/publication_status_smoke.py
 ```
 
 Real Telegram or storage credentials are not required for this check.
@@ -107,6 +109,7 @@ Run the smoke script:
 
 ```bash
 .venv/bin/python scripts/postgres_webhook_smoke.py
+.venv/bin/python scripts/publication_status_smoke.py
 ```
 
 ## Run API manually
