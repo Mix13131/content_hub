@@ -18,9 +18,13 @@ It covers:
 - `/healthz`;
 - `/webhooks/telegram`;
 - idempotency by `telegram_chat_id + telegram_post_id`;
+- four `PublicationJob` rows per new post: website, Instagram, VK, and Facebook via Instagram sync;
+- no duplicate jobs after repeated webhook delivery;
+- unique `publication_jobs(post_id, platform)` constraint;
+- `Post.status = queued` after jobs are created;
 - saved `PublicationLog` row.
 
-It does not perform Telegram file downloads or S3 uploads. It also does not cover Dramatiq, Instagram, VK, Facebook, admin UI, AI, Stories, WhatsApp, or media groups.
+It does not perform Telegram file downloads, S3 uploads, worker execution, or publisher API calls. It also does not cover Dramatiq, Instagram, VK, Facebook API, admin UI, AI, Stories, WhatsApp, or media groups.
 
 ## Option A. Local PostgreSQL
 

@@ -21,3 +21,10 @@ def test_services_do_not_import_fastapi_http_layer() -> None:
 def test_webhook_endpoint_does_not_import_publishers() -> None:
     source = (PROJECT_ROOT / "content_hub" / "app.py").read_text(encoding="utf-8")
     assert "content_hub.publishers" not in source
+
+
+def test_queue_service_does_not_import_publishers() -> None:
+    source = (
+        PROJECT_ROOT / "content_hub" / "services" / "publication_queue.py"
+    ).read_text(encoding="utf-8")
+    assert "content_hub.publishers" not in source

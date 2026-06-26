@@ -19,8 +19,13 @@ from sqlalchemy.orm import Session
 
 from content_hub.app import app
 from content_hub.db import SessionLocal
-from content_hub.enums import MediaType, PostType
-from content_hub.models import Media, Post, PublicationLog
+from content_hub.enums import (
+    MediaType,
+    PlatformStatus,
+    PostType,
+    PublicationPlatform,
+)
+from content_hub.models import Media, Post, PublicationJob, PublicationLog
 from content_hub.settings import get_settings
 
 
@@ -72,6 +77,7 @@ def main() -> int:
     with SessionLocal() as db:
         posts = [verify_post(db, payload) for payload in payloads]
         verify_postgres_column_types(db)
+        verify_postgres_constraints(db)
         print("PostgreSQL webhook smoke passed.")
         for post in posts:
             print(
@@ -113,19 +119,58 @@ def verify_post(db: Session, payload: dict[str, Any]) -> Post:
     assert isinstance(post.id, uuid.UUID), type(post.id)
     assert post.telegram_message_ids == [message_id]
     assert post.text == (message.get("text") or message.get("caption") or "")
-    assert post.status == "saved"
+    assert post.status == "queued"
     assert post.website_status == "Waiting"
     assert post.instagram_status == "Waiting"
     assert post.facebook_status == "Waiting"
     assert post.vk_status == "Waiting"
     assert post.telegram_posted_at.tzinfo is not None
 
-    log = db.scalar(select(PublicationLog).where(PublicationLog.post_id == post.id))
+    log = db.scalar(
+        select(PublicationLog).where(
+            PublicationLog.post_id == post.id,
+            PublicationLog.event == "post_received",
+        )
+    )
     assert log is not None
     assert log.service == "telegram"
     assert log.event == "post_received"
+    verify_publication_jobs(db, post)
     verify_media(db, post, message)
     return post
+
+
+def verify_publication_jobs(db: Session, post: Post) -> None:
+    jobs = db.scalars(
+        select(PublicationJob).where(PublicationJob.post_id == post.id)
+    ).all()
+    assert len(jobs) == 4
+    assert {job.platform for job in jobs} == {
+        PublicationPlatform.website,
+        PublicationPlatform.instagram,
+        PublicationPlatform.vk,
+        PublicationPlatform.facebook,
+    }
+    for job in jobs:
+        assert job.status == PlatformStatus.Waiting
+        assert job.attempt_count == 0
+        assert job.max_attempts == 5
+        assert job.next_retry_at is None
+        assert job.external_post_id is None
+        assert job.external_url is None
+        assert job.last_error_code is None
+        assert job.last_error_message is None
+        assert job.last_api_response is None
+
+    queue_log = db.scalar(
+        select(PublicationLog).where(
+            PublicationLog.post_id == post.id,
+            PublicationLog.event == "publication_jobs_created",
+        )
+    )
+    assert queue_log is not None
+    assert queue_log.service == "queue"
+    assert "4" in queue_log.message
 
 
 def verify_media(db: Session, post: Post, message: dict[str, Any]) -> None:
@@ -210,6 +255,24 @@ def verify_postgres_column_types(db: Session) -> None:
     assert columns[("posts", "website_status")]["data_type"] == "character varying"
     assert columns[("media", "file_url")]["is_nullable"] == "YES"
     assert columns[("media", "storage_key")]["is_nullable"] == "YES"
+
+
+def verify_postgres_constraints(db: Session) -> None:
+    constraint_exists = db.scalar(
+        text(
+            """
+            select exists (
+                select 1
+                from information_schema.table_constraints
+                where table_schema = current_schema()
+                  and table_name = 'publication_jobs'
+                  and constraint_name = 'uq_publication_jobs_post_platform'
+                  and constraint_type = 'UNIQUE'
+            )
+            """
+        )
+    )
+    assert constraint_exists is True
 
 
 if __name__ == "__main__":

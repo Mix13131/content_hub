@@ -3,7 +3,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import (
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from content_hub.enums import PlatformStatus, PublicationPlatform
@@ -14,6 +23,13 @@ from content_hub.models.types import JSONB, enum_values
 
 class PublicationJob(Base):
     __tablename__ = "publication_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "post_id",
+            "platform",
+            name="uq_publication_jobs_post_platform",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     post_id: Mapped[uuid.UUID] = mapped_column(

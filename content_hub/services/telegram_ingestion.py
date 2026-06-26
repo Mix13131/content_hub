@@ -16,6 +16,7 @@ from content_hub.enums import (
     PublicationLogLevel,
 )
 from content_hub.models import Media, Post, PublicationLog
+from content_hub.services.publication_queue import PublicationQueueService
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,14 @@ class TelegramIngestionResult:
 
 
 class TelegramIngestionService:
+    def __init__(
+        self,
+        publication_queue_service: PublicationQueueService | None = None,
+    ) -> None:
+        self.publication_queue_service = (
+            publication_queue_service or PublicationQueueService()
+        )
+
     def ingest_update(
         self,
         update: dict[str, Any],
@@ -78,6 +87,7 @@ class TelegramIngestionService:
                 api_response={"update_id": update.get("update_id")},
             )
         )
+        self.publication_queue_service.create_jobs_for_post(post, db)
         db.commit()
         db.refresh(post)
         return TelegramIngestionResult(ignored=False, created=True, post_id=str(post.id))

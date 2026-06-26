@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from content_hub.enums import (
@@ -13,8 +14,9 @@ from content_hub.enums import (
     PostStatus,
     PostType,
     PublicationLogLevel,
+    PublicationPlatform,
 )
-from content_hub.models import Media, Post, PublicationLog
+from content_hub.models import Media, Post, PublicationJob, PublicationLog
 from content_hub.services.telegram_ingestion import TelegramIngestionService
 
 
@@ -23,6 +25,36 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES_DIR / name).read_text(encoding="utf-8"))
+
+
+MVP_PLATFORMS = {
+    PublicationPlatform.website,
+    PublicationPlatform.instagram,
+    PublicationPlatform.vk,
+    PublicationPlatform.facebook,
+}
+
+
+def assert_publication_jobs_created(
+    db_session: Session,
+    post: Post,
+) -> list[PublicationJob]:
+    jobs = db_session.scalars(
+        select(PublicationJob).where(PublicationJob.post_id == post.id)
+    ).all()
+    assert len(jobs) == 4
+    assert {job.platform for job in jobs} == MVP_PLATFORMS
+    for job in jobs:
+        assert job.status == PlatformStatus.Waiting
+        assert job.attempt_count == 0
+        assert job.max_attempts == 5
+        assert job.next_retry_at is None
+        assert job.external_post_id is None
+        assert job.external_url is None
+        assert job.last_error_code is None
+        assert job.last_error_message is None
+        assert job.last_api_response is None
+    return jobs
 
 
 def test_healthz(client: TestClient) -> None:
@@ -47,6 +79,8 @@ def test_accepts_text_channel_post(client: TestClient, db_session: Session) -> N
 
     posts = db_session.scalars(select(Post)).all()
     assert len(posts) == 1
+    assert posts[0].status == PostStatus.queued
+    assert_publication_jobs_created(db_session, posts[0])
 
 
 def test_repeated_webhook_does_not_create_duplicate(
@@ -66,6 +100,7 @@ def test_repeated_webhook_does_not_create_duplicate(
     assert first_response.json()["post_id"] == second_response.json()["post_id"]
     assert len(db_session.scalars(select(Post)).all()) == 1
     assert len(db_session.scalars(select(Media)).all()) == 0
+    assert len(db_session.scalars(select(PublicationJob)).all()) == 4
 
 
 def test_post_is_created_with_expected_fields(
@@ -88,19 +123,33 @@ def test_post_is_created_with_expected_fields(
     assert post.photo_count == 0
     assert post.video_count == 0
     assert post.source == ContentSource.telegram_channel
-    assert post.status == PostStatus.saved
+    assert post.status == PostStatus.queued
     assert post.website_status == PlatformStatus.Waiting
     assert post.instagram_status == PlatformStatus.Waiting
     assert post.facebook_status == PlatformStatus.Waiting
     assert post.vk_status == PlatformStatus.Waiting
     assert post.story_status is None
+    assert_publication_jobs_created(db_session, post)
 
-    log = db_session.scalar(select(PublicationLog))
+    log = db_session.scalar(
+        select(PublicationLog).where(PublicationLog.event == "post_received")
+    )
     assert log is not None
     assert log.post_id == post.id
     assert log.service == "telegram"
     assert log.level == PublicationLogLevel.info
     assert log.event == "post_received"
+
+    queue_log = db_session.scalar(
+        select(PublicationLog).where(
+            PublicationLog.event == "publication_jobs_created"
+        )
+    )
+    assert queue_log is not None
+    assert queue_log.post_id == post.id
+    assert queue_log.service == "queue"
+    assert queue_log.level == PublicationLogLevel.info
+    assert "4" in queue_log.message
 
 
 def test_service_ingests_text_without_fastapi(db_session: Session) -> None:
@@ -114,6 +163,8 @@ def test_service_ingests_text_without_fastapi(db_session: Session) -> None:
     post = db_session.scalar(select(Post))
     assert post is not None
     assert post.post_type == PostType.text
+    assert post.status == PostStatus.queued
+    assert_publication_jobs_created(db_session, post)
 
 
 def test_photo_channel_post_creates_post_and_largest_photo_media(
@@ -133,6 +184,8 @@ def test_photo_channel_post_creates_post_and_largest_photo_media(
     assert post.post_type == PostType.photo
     assert post.photo_count == 1
     assert post.video_count == 0
+    assert post.status == PostStatus.queued
+    assert_publication_jobs_created(db_session, post)
 
     media = db_session.scalar(select(Media))
     assert media is not None
@@ -165,6 +218,8 @@ def test_video_channel_post_creates_post_and_video_media(
     assert post.post_type == PostType.video
     assert post.photo_count == 0
     assert post.video_count == 1
+    assert post.status == PostStatus.queued
+    assert_publication_jobs_created(db_session, post)
 
     media = db_session.scalar(select(Media))
     assert media is not None
@@ -196,6 +251,7 @@ def test_repeated_photo_webhook_does_not_create_duplicate_media(
     assert second_response.json()["reason"] == "duplicate"
     assert len(db_session.scalars(select(Post)).all()) == 1
     assert len(db_session.scalars(select(Media)).all()) == 1
+    assert len(db_session.scalars(select(PublicationJob)).all()) == 4
 
 
 def test_repeated_video_webhook_does_not_create_duplicate_media(
@@ -212,3 +268,31 @@ def test_repeated_video_webhook_does_not_create_duplicate_media(
     assert second_response.json()["reason"] == "duplicate"
     assert len(db_session.scalars(select(Post)).all()) == 1
     assert len(db_session.scalars(select(Media)).all()) == 1
+    assert len(db_session.scalars(select(PublicationJob)).all()) == 4
+
+
+def test_publication_job_platform_is_unique_per_post(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_text_channel_post.json")
+    client.post("/webhooks/telegram", json=payload)
+    post = db_session.scalar(select(Post))
+    assert post is not None
+
+    db_session.add(
+        PublicationJob(
+            post_id=post.id,
+            platform=PublicationPlatform.website,
+            status=PlatformStatus.Waiting,
+            attempt_count=0,
+            max_attempts=5,
+        )
+    )
+
+    try:
+        db_session.commit()
+    except IntegrityError:
+        db_session.rollback()
+    else:
+        raise AssertionError("Expected unique post/platform constraint")
