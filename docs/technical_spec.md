@@ -4,7 +4,7 @@
 
 Content Hub - платформа автоматической публикации контента в социальные сети и на сайт.
 
-Пользователь публикует контент один раз в Telegram-канал, после чего система сохраняет публикацию, скачивает медиа и автоматически распространяет запись по выбранным площадкам.
+Пользователь публикует контент один раз в Telegram-канал, после чего система сохраняет публикацию, Telegram metadata медиа и автоматически распространяет запись по выбранным площадкам.
 
 Главная цель - максимально сократить ручную работу при ведении социальных сетей для тематики:
 
@@ -25,7 +25,6 @@ Telegram Channel
   -> Telegram webhook
   -> Content Hub API
   -> PostgreSQL
-  -> S3-compatible storage
   -> independent publication queue
   -> Website
   -> Instagram
@@ -42,7 +41,7 @@ Telegram Channel
 - прием новых постов из Telegram-канала;
 - сохранение текста, даты, автора, Telegram Post ID и типа публикации;
 - поддержка одного фото, нескольких фото, видео, текста с фото, текста с видео и медиагруппы;
-- скачивание медиа из Telegram и сохранение в S3-совместимое хранилище;
+- сохранение Telegram `file_id`, `file_unique_id` и metadata медиа без скачивания файлов;
 - создание записей в PostgreSQL;
 - независимая очередь публикации по площадкам;
 - публикация на сайт в раздел `Новости` или `Блог`;
@@ -60,6 +59,7 @@ Telegram Channel
 - контент-календарь;
 - ручные черновики и согласование;
 - сбор бизнес-аналитики из соцсетей.
+- скачивание медиа из Telegram и S3-совместимое хранилище.
 
 Эти возможности должны быть заложены в архитектуру, но не реализуются в первом релизе.
 
@@ -73,7 +73,6 @@ Backend:
 - Alembic;
 - PostgreSQL на Neon;
 - Dramatiq + Redis для фоновых задач;
-- S3-compatible storage: Cloudflare R2 или Supabase Storage;
 - Railway для hosting;
 - Pydantic Settings для конфигурации;
 - pytest для тестов.
@@ -84,7 +83,7 @@ Backend:
 - `worker` service: Dramatiq worker;
 - Redis service;
 - Neon PostgreSQL как внешняя БД;
-- storage credentials только через Railway env vars.
+- внешние API credentials только через Railway env vars.
 
 ## 5. Основные сущности
 
@@ -133,8 +132,8 @@ Backend:
 | `id` | UUID | внутренний идентификатор |
 | `post_id` | UUID FK | ссылка на Post |
 | `type` | enum | `photo`, `video` |
-| `file_url` | text | публичный или CDN URL файла |
-| `storage_key` | text | путь в bucket |
+| `file_url` | text, nullable | резерв под будущий публичный или CDN URL файла |
+| `storage_key` | text, nullable | резерв под будущий путь в bucket |
 | `telegram_file_id` | text | Telegram file_id |
 | `telegram_file_unique_id` | text, nullable | устойчивый Telegram file_unique_id |
 | `sort_order` | int | порядок медиа в посте |
@@ -199,8 +198,8 @@ Backend:
 Общий `posts.status`:
 
 - `received` - webhook принят;
-- `saving_media` - идет скачивание и сохранение медиа;
-- `saved` - пост и медиа сохранены;
+- `saving_media` - резерв под будущую обработку файлов медиа;
+- `saved` - пост и metadata медиа сохранены;
 - `queued` - задачи публикации созданы;
 - `partially_published` - хотя бы одна площадка успешна, но есть ошибки или ожидание;
 - `published` - все включенные площадки успешны;
@@ -220,7 +219,7 @@ Content Hub принимает обновления через Telegram webhook.
 - порядок медиа должен сохраняться;
 - текст берется из `text` или `caption`; для медиагруппы приоритет у caption первого элемента, где он заполнен;
 - исходные Telegram `file_id` сохраняются;
-- после сохранения всех медиа создаются независимые задачи публикации.
+- после сохранения Post и Media metadata создаются независимые задачи публикации.
 
 Обработка медиагруппы:
 
@@ -230,23 +229,35 @@ Content Hub принимает обновления через Telegram webhook.
 4. Первое сообщение группы становится `telegram_post_id`.
 5. Все message_id сохраняются в `telegram_message_ids`.
 
-## 8. Storage
+## 8. Media metadata
 
-Все медиа скачиваются из Telegram и сохраняются в S3-compatible storage.
+В MVP медиа не скачиваются из Telegram и не сохраняются в S3-compatible storage.
+
+Content Hub хранит только Telegram metadata:
+
+- `telegram_file_id`;
+- `telegram_file_unique_id`;
+- тип медиа;
+- порядок;
+- MIME type;
+- размер, если он пришел от Telegram;
+- ширину, высоту и длительность видео;
+- ссылку на исходный Telegram-пост.
 
 Требования:
 
-- storage key должен быть стабильным и не конфликтовать при повторном webhook;
-- рекомендуемый формат ключа:
+- повторная обработка webhook не должна создавать дубли Media;
+- `file_url` и `storage_key` остаются nullable и в MVP не заполняются;
+- Telegram остается источником медиа для MVP;
+- если в будущем понадобится storage, storage key должен быть стабильным и не конфликтовать при повторном webhook;
+- рекомендуемый будущий формат ключа:
 
 ```text
 telegram/{telegram_chat_id}/{telegram_post_id}/{sort_order}_{telegram_file_unique_id}.{ext}
 ```
 
-- для публикации в Instagram и VK URL медиа должен быть доступен внешним API;
-- если используется signed URL, срок жизни должен покрывать всю публикацию и retries;
-- при ошибке сохранения медиа пост не публикуется, а получает общий статус `error`;
-- повторная обработка не должна повторно загружать уже сохраненный файл, если `storage_key` существует.
+- для будущей публикации в Instagram и VK может понадобиться внешний URL медиа;
+- если в будущем используется signed URL, срок жизни должен покрывать всю публикацию и retries.
 
 ## 9. Publication queue
 
@@ -448,7 +459,6 @@ MVP endpoints:
 Внутренние сервисы:
 
 - `TelegramIngestionService`;
-- `MediaStorageService`;
 - `PublicationQueueService`;
 - `WebsitePublisher`;
 - `InstagramPublisher`;
@@ -555,7 +565,7 @@ AI не входит в MVP, но архитектура должна подде
 - API Retry доступен только авторизованному администратору;
 - логи не должны показывать полные токены;
 - внешние API responses можно хранить, но секретные заголовки и access tokens нужно вычищать;
-- public media URLs должны быть рассчитаны осознанно: если контент не должен быть публичным до публикации, использовать signed URLs.
+- public media URLs не создаются в MVP; если storage появится позже, доступность URL и signed URLs должны быть рассчитаны осознанно.
 
 ## 23. Ошибки и восстановление
 
@@ -563,8 +573,6 @@ AI не входит в MVP, но архитектура должна подде
 
 - повторный Telegram webhook;
 - неполную медиагруппу;
-- недоступность Telegram file download;
-- недоступность storage;
 - недоступность Redis;
 - недоступность отдельной соцсети;
 - истекший токен платформы;
@@ -572,7 +580,7 @@ AI не входит в MVP, но архитектура должна подде
 - ошибку публикации одного элемента карусели;
 - ручной повтор публикации после исправления токена или формата.
 
-При критической ошибке приема или storage:
+При критической ошибке приема:
 
 - Post переводится в `error`;
 - jobs не создаются;
@@ -591,10 +599,10 @@ AI не входит в MVP, но архитектура должна подде
 - unit: сбор медиагруппы в один Post;
 - unit: idempotency повторного webhook;
 - unit: расчет `post_type`, `photo_count`, `video_count`;
-- unit: storage key generation;
+- unit: Media metadata extraction для фото и видео;
 - unit: platform status transitions;
 - integration: Post + Media creation in PostgreSQL;
-- integration: job creation after successful media save;
+- integration: job creation after successful Post + Media metadata save;
 - integration: failure isolation между Instagram и VK;
 - integration: Retry создает новую попытку и пишет log;
 - smoke: `/healthz`;
@@ -609,8 +617,8 @@ AI не входит в MVP, но архитектура должна подде
 MVP считается готовым, если:
 
 1. Новый текстовый пост в Telegram сохраняется в БД и появляется в админке.
-2. Пост с одним фото сохраняет фото в storage и создает одну Media запись.
-3. Пост с несколькими фото сохраняется как один Post с несколькими Media в правильном порядке.
+2. Пост с одним фото создает одну Media metadata запись без скачивания файла.
+3. Пост с несколькими фото сохраняется как один Post с несколькими Media metadata в правильном порядке.
 4. Пост с видео сохраняет видео и корректно определяет `post_type`.
 5. Медиагруппа не создает дубли при повторных Telegram webhook.
 6. После сохранения создаются независимые jobs для Website, Instagram, VK и Facebook via Instagram sync.
@@ -634,7 +642,7 @@ MVP считается готовым, если:
 | Meta account не готов к publishing API | провести discovery доступа до оценки сроков |
 | Facebook sync нельзя подтвердить API | явно показать статус `via Instagram sync` |
 | VK токен публикует текст, но не загружает медиа | отдельно проверить права токена на staging |
-| Storage URL недоступен внешним API | проверить публичность/CDN/signed URL до публикации |
+| Внешним API нужен URL медиа, а MVP хранит только Telegram metadata | перед Instagram/VK этапом отдельно решить, нужен ли storage или другой способ передачи медиа |
 | Повторный Retry создает дубли | хранить external IDs и делать adapter idempotent |
 
 ## 27. Рекомендуемая структура репозитория
@@ -652,7 +660,6 @@ app/
   schemas/
   services/
     telegram_ingestion.py
-    media_storage.py
     publication_queue.py
     status_service.py
   publishers/
@@ -676,7 +683,6 @@ tests/
 - получить Telegram bot token;
 - добавить бота в канал;
 - проверить получение `channel_post`;
-- выбрать storage: Cloudflare R2 или Supabase Storage;
 - подготовить Neon;
 - подготовить Railway;
 - проверить доступы Instagram/Meta;
@@ -692,13 +698,11 @@ tests/
 - сохранение Post;
 - базовая админка списка.
 
-### Этап 2. Media storage
+### Этап 2. Media metadata
 
-- Telegram file download;
-- S3 upload;
 - Media records;
 - поддержка фото, видео и медиагрупп;
-- storage failure handling.
+- metadata failure handling.
 
 ### Этап 3. Queue
 
@@ -743,13 +747,13 @@ tests/
 2. Есть ли у Instagram аккаунта Business/Creator статус и связь с Facebook Page?
 3. Нужно ли публиковать все Telegram-посты автоматически или нужен фильтр/тег для отбора?
 4. Нужно ли исключать какие-то посты, например личные, служебные или рекламные?
-5. Какой storage выбираем для MVP: Cloudflare R2 или Supabase Storage?
+5. Нужно ли на следующем этапе добавлять storage для внешних соцсетей или достаточно Telegram metadata?
 6. Нужна ли модерация перед публикацией в Instagram/VK или сразу автоматическая публикация?
 7. Какой VK объект используется: личная страница или сообщество?
 8. Что считать успехом Facebook: успешный Instagram post при включенной синхронизации или отдельная проверка Facebook?
 
 ## 30. Внешние API-ориентиры
 
-- Telegram Bot API: channel posts, media groups, file download через `getFile`: https://core.telegram.org/bots/api
+- Telegram Bot API: channel posts and media groups: https://core.telegram.org/bots/api
 - Instagram Content Publishing API: single image, video, Reels and carousel publishing through Meta: https://developers.facebook.com/docs/instagram-platform/content-publishing/
 - VK API: wall publishing and media upload should be verified against the exact community token and current VK API schema before implementation: https://github.com/VKCOM/vk-api-schema

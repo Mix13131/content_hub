@@ -1,6 +1,6 @@
 # PostgreSQL / Neon smoke check
 
-This check verifies Stage 1 Core ingestion against a real PostgreSQL-compatible database.
+This check verifies metadata-only core ingestion against a real PostgreSQL-compatible database.
 
 It covers:
 
@@ -9,12 +9,18 @@ It covers:
 - PostgreSQL `jsonb` for `telegram_message_ids`;
 - `timestamp with time zone` for Telegram and audit timestamps;
 - status fields saved and read through SQLAlchemy;
+- text, photo, and video webhook fixtures;
+- media rows for photo/video posts;
+- Telegram media metadata such as `file_id`, `file_unique_id`, dimensions, MIME type, duration, and size;
+- `media.file_url IS NULL`;
+- `media.storage_key IS NULL`;
+- nullable database columns for `media.file_url` and `media.storage_key`;
 - `/healthz`;
 - `/webhooks/telegram`;
 - idempotency by `telegram_chat_id + telegram_post_id`;
 - saved `PublicationLog` row.
 
-It does not cover media download, S3, Dramatiq, Instagram, VK, Facebook, admin UI, AI, Stories, WhatsApp, or media groups.
+It does not perform Telegram file downloads or S3 uploads. It also does not cover Dramatiq, Instagram, VK, Facebook, admin UI, AI, Stories, WhatsApp, or media groups.
 
 ## Option A. Local PostgreSQL
 
@@ -69,6 +75,8 @@ Apply migration and run smoke:
 .venv/bin/alembic -c content_hub/alembic.ini upgrade head
 .venv/bin/python scripts/postgres_webhook_smoke.py
 ```
+
+Real Telegram or storage credentials are not required for this check.
 
 Stop the temporary database after the check:
 
@@ -165,3 +173,8 @@ Expected highlights:
 - `posts.telegram_message_ids` -> `jsonb`;
 - `posts.telegram_posted_at` -> `timestamptz`;
 - status columns -> `character varying` with SQLAlchemy enum validation in the app layer.
+- `media.file_url` and `media.storage_key` are nullable columns and stay `NULL` in MVP smoke rows.
+
+## Future storage check
+
+Telegram file download and S3-compatible storage are not part of the current MVP. If a future stage adds them, create a separate staging smoke with real Telegram and storage credentials. Do not commit those values.

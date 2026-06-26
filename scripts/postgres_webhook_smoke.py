@@ -168,7 +168,7 @@ def verify_postgres_column_types(db: Session) -> None:
     rows = db.execute(
         text(
             """
-            select table_name, column_name, data_type, udt_name
+            select table_name, column_name, data_type, udt_name, is_nullable
             from information_schema.columns
             where table_schema = current_schema()
               and table_name in ('posts', 'media', 'publication_jobs', 'publication_logs')
@@ -184,7 +184,9 @@ def verify_postgres_column_types(db: Session) -> None:
                 'website_status',
                 'instagram_status',
                 'facebook_status',
-                'vk_status'
+                'vk_status',
+                'file_url',
+                'storage_key'
               )
             """
         )
@@ -206,6 +208,8 @@ def verify_postgres_column_types(db: Session) -> None:
     assert columns[("posts", "updated_at")]["udt_name"] == "timestamptz"
     assert columns[("posts", "status")]["data_type"] == "character varying"
     assert columns[("posts", "website_status")]["data_type"] == "character varying"
+    assert columns[("media", "file_url")]["is_nullable"] == "YES"
+    assert columns[("media", "storage_key")]["is_nullable"] == "YES"
 
 
 if __name__ == "__main__":

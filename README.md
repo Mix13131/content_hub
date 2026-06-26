@@ -2,7 +2,7 @@
 
 Content Hub is a FastAPI backend for ingesting posts from a Telegram channel and preparing them for automatic publication to a website and social platforms.
 
-Current implementation covers Stage 1 Core ingestion only:
+Current implementation covers metadata-only core ingestion:
 
 - FastAPI application;
 - `/healthz`;
@@ -10,15 +10,17 @@ Current implementation covers Stage 1 Core ingestion only:
 - Pydantic Settings;
 - SQLAlchemy models;
 - Alembic migration;
-- text `channel_post` ingestion;
+- text/photo/video `channel_post` ingestion;
+- media metadata for Telegram photo/video posts;
 - idempotency by `telegram_chat_id + telegram_post_id`;
-- tests for health, ingestion, idempotency, and saved Post fields.
+- tests for health, ingestion, idempotency, media metadata, and saved Post fields.
 
 Not implemented yet:
 
-- media download;
+- Telegram file download;
 - S3-compatible storage;
 - Dramatiq workers;
+- PublicationJob creation;
 - Instagram, VK, Facebook publishing;
 - admin panel;
 - AI, Stories, WhatsApp.
@@ -32,6 +34,8 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+MVP media handling is metadata-only: Content Hub stores Telegram `file_id`, `file_unique_id`, dimensions, MIME type, duration, and source Telegram URL. It does not download Telegram files or upload them to S3-compatible storage.
+
 ## Run Tests
 
 ```bash
@@ -40,7 +44,7 @@ cp .env.example .env
 
 ## PostgreSQL / Neon Smoke
 
-Stage 1 should be checked against a real PostgreSQL-compatible database before moving to media storage and queue work.
+Core ingestion should be checked against a real PostgreSQL-compatible database before queue or publisher work.
 
 See [docs/postgres_smoke.md](docs/postgres_smoke.md).
 
