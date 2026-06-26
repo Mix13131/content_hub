@@ -10,6 +10,7 @@ class Settings(BaseSettings):
         "postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub"
     )
     telegram_webhook_secret: str | None = None
+    admin_api_token: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -1,0 +1,1 @@
+"""Minimal admin API routers."""

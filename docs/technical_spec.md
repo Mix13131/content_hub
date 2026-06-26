@@ -453,6 +453,12 @@ MVP endpoints:
 |---|---|---|
 | `/webhooks/telegram` | POST | прием Telegram updates |
 | `/healthz` | GET | health check |
+| `/admin/jobs` | GET | временный API список publication jobs |
+| `/admin/jobs/{job_id}` | GET | временный API карточка publication job с логами |
+| `/admin/jobs/{job_id}/start` | POST | временный API старт job |
+| `/admin/jobs/{job_id}/success` | POST | временный API отметить успех job |
+| `/admin/jobs/{job_id}/error` | POST | временный API отметить ошибку job |
+| `/admin/jobs/{job_id}/retry` | POST | временный API ручной retry job |
 | `/admin/posts` | GET | список публикаций |
 | `/admin/posts/{post_id}` | GET | карточка публикации |
 | `/admin/posts/{post_id}/retry/{platform}` | POST | повтор публикации на платформу |

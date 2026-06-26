@@ -23,6 +23,7 @@ It covers:
 - unique `publication_jobs(post_id, platform)` constraint;
 - `Post.status = queued` after jobs are created;
 - DB-only publication job lifecycle: start, success, error, aggregate partial status, and manual retry;
+- token-protected admin job API lifecycle: list, detail, start, success, error, retry;
 - saved `PublicationLog` row.
 
 It does not perform Telegram file downloads, S3 uploads, worker execution, or publisher API calls. It also does not cover Dramatiq, Instagram, VK, Facebook API, admin UI, AI, Stories, WhatsApp, or media groups.
@@ -34,6 +35,7 @@ Create a database and user by your preferred local PostgreSQL method, then expor
 ```bash
 export CONTENT_HUB_DATABASE_URL='postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub'
 export CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET='local-smoke-secret'
+export CONTENT_HUB_ADMIN_API_TOKEN='local-admin-token'
 ```
 
 Apply the migration:
@@ -46,6 +48,8 @@ Run the smoke script:
 
 ```bash
 .venv/bin/python scripts/postgres_webhook_smoke.py
+.venv/bin/python scripts/publication_status_smoke.py
+.venv/bin/python scripts/admin_jobs_smoke.py
 ```
 
 ### Local PostgreSQL via Docker
@@ -72,6 +76,7 @@ Export the local Docker connection string:
 ```bash
 export CONTENT_HUB_DATABASE_URL='postgresql+psycopg://content_hub:content_hub@127.0.0.1:55432/content_hub'
 export CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET='local-smoke-secret'
+export CONTENT_HUB_ADMIN_API_TOKEN='local-admin-token'
 ```
 
 Apply migration and run smoke:
@@ -80,6 +85,7 @@ Apply migration and run smoke:
 .venv/bin/alembic -c content_hub/alembic.ini upgrade head
 .venv/bin/python scripts/postgres_webhook_smoke.py
 .venv/bin/python scripts/publication_status_smoke.py
+.venv/bin/python scripts/admin_jobs_smoke.py
 ```
 
 Real Telegram or storage credentials are not required for this check.
@@ -97,6 +103,7 @@ Use a Neon connection string with the `postgresql+psycopg://` SQLAlchemy driver 
 ```bash
 export CONTENT_HUB_DATABASE_URL='postgresql+psycopg://USER:PASSWORD@HOST.neon.tech/DB?sslmode=require'
 export CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET='neon-smoke-secret'
+export CONTENT_HUB_ADMIN_API_TOKEN='neon-admin-smoke-token'
 ```
 
 Apply the migration:
@@ -110,6 +117,7 @@ Run the smoke script:
 ```bash
 .venv/bin/python scripts/postgres_webhook_smoke.py
 .venv/bin/python scripts/publication_status_smoke.py
+.venv/bin/python scripts/admin_jobs_smoke.py
 ```
 
 ## Run API manually
@@ -145,6 +153,13 @@ Expected repeated response for the same fixture:
 
 ```json
 {"ok":true,"ignored":false,"created":false,"post_id":"...","reason":"duplicate"}
+```
+
+Admin jobs example:
+
+```bash
+curl -s http://127.0.0.1:8000/admin/jobs \
+  -H "X-Content-Hub-Admin-Token: ${CONTENT_HUB_ADMIN_API_TOKEN}"
 ```
 
 ## Check the database manually

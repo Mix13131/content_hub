@@ -14,6 +14,7 @@ Current implementation covers metadata-only core ingestion:
 - media metadata for Telegram photo/video posts;
 - PublicationJob creation for website, Instagram, VK, and Facebook via Instagram sync;
 - DB-only PublicationJob status and retry lifecycle service;
+- minimal token-protected admin API endpoints for PublicationJob lifecycle checks;
 - idempotency by `telegram_chat_id + telegram_post_id`;
 - tests for health, ingestion, idempotency, media metadata, PublicationJob rows, status lifecycle, and saved Post fields.
 
@@ -24,7 +25,6 @@ Not implemented yet:
 - Dramatiq workers;
 - publisher workers;
 - Instagram, VK, Facebook publishing;
-- HTTP admin endpoints for job status changes;
 - admin panel;
 - AI, Stories, WhatsApp.
 
@@ -50,6 +50,8 @@ MVP media handling is metadata-only: Content Hub stores Telegram `file_id`, `fil
 Core ingestion should be checked against a real PostgreSQL-compatible database before worker or publisher work.
 
 The optional publication status smoke checks DB-only status transitions and manual retry without starting workers or external publisher API calls.
+
+Admin job endpoints are protected by `CONTENT_HUB_ADMIN_API_TOKEN` when it is set. In local development, if the token is empty, the endpoints are open for manual smoke checks.
 
 See [docs/postgres_smoke.md](docs/postgres_smoke.md).
 
