@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import BigInteger, DateTime, Enum, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from content_hub.models.base import Base
@@ -43,9 +44,7 @@ class Post(Base):
         ),
     )
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     telegram_post_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     telegram_media_group_id: Mapped[str | None] = mapped_column(String(255))

@@ -52,7 +52,7 @@ class TelegramIngestionService:
             return TelegramIngestionResult(
                 ignored=False,
                 created=False,
-                post_id=existing_post.id,
+                post_id=str(existing_post.id),
                 reason="duplicate",
             )
 
@@ -71,7 +71,7 @@ class TelegramIngestionService:
         )
         db.commit()
         db.refresh(post)
-        return TelegramIngestionResult(ignored=False, created=True, post_id=post.id)
+        return TelegramIngestionResult(ignored=False, created=True, post_id=str(post.id))
 
     def _build_post(self, message: dict[str, Any]) -> Post:
         chat = message.get("chat") or {}

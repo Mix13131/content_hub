@@ -22,7 +22,7 @@ jsonb_type = postgresql.JSONB(astext_type=sa.Text()).with_variant(sa.JSON(), "sq
 def upgrade() -> None:
     op.create_table(
         "posts",
-        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("telegram_chat_id", sa.BigInteger(), nullable=False),
         sa.Column("telegram_post_id", sa.BigInteger(), nullable=False),
         sa.Column("telegram_media_group_id", sa.String(length=255), nullable=True),
@@ -93,8 +93,8 @@ def upgrade() -> None:
 
     op.create_table(
         "media",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("post_id", sa.String(length=36), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("post_id", sa.Uuid(), nullable=False),
         sa.Column(
             "type",
             sa.Enum("photo", "video", name="media_type", native_enum=False),
@@ -118,8 +118,8 @@ def upgrade() -> None:
 
     op.create_table(
         "publication_jobs",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("post_id", sa.String(length=36), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("post_id", sa.Uuid(), nullable=False),
         sa.Column(
             "platform",
             sa.Enum(
@@ -159,9 +159,9 @@ def upgrade() -> None:
 
     op.create_table(
         "publication_logs",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("post_id", sa.String(length=36), nullable=True),
-        sa.Column("job_id", sa.String(length=36), nullable=True),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("post_id", sa.Uuid(), nullable=True),
+        sa.Column("job_id", sa.Uuid(), nullable=True),
         sa.Column("service", sa.String(length=100), nullable=False),
         sa.Column(
             "level",

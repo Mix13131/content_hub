@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from content_hub.models.base import Base
@@ -17,14 +17,12 @@ LOG_LEVEL_VALUES = ("info", "warning", "error")
 class PublicationLog(Base):
     __tablename__ = "publication_logs"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("posts.id", ondelete="CASCADE"), index=True
     )
-    post_id: Mapped[str | None] = mapped_column(
-        ForeignKey("posts.id", ondelete="CASCADE"), index=True
-    )
-    job_id: Mapped[str | None] = mapped_column(
-        ForeignKey("publication_jobs.id", ondelete="CASCADE"), index=True
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("publication_jobs.id", ondelete="CASCADE"), index=True
     )
     service: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     level: Mapped[str] = mapped_column(

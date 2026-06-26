@@ -26,7 +26,7 @@ Not implemented yet:
 ## Setup
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
@@ -37,6 +37,12 @@ cp .env.example .env
 ```bash
 .venv/bin/python -m pytest tests/content_hub -q
 ```
+
+## PostgreSQL / Neon Smoke
+
+Stage 1 should be checked against a real PostgreSQL-compatible database before moving to media storage and queue work.
+
+See [docs/postgres_smoke.md](docs/postgres_smoke.md).
 
 ## Run App
 
@@ -50,4 +56,3 @@ cp .env.example .env
 CONTENT_HUB_DATABASE_URL=postgresql+psycopg://user:password@host:5432/db \
   .venv/bin/alembic -c content_hub/alembic.ini upgrade head
 ```
-
