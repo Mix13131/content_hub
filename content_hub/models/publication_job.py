@@ -6,19 +6,10 @@ from datetime import datetime
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from content_hub.enums import PlatformStatus, PublicationPlatform
 from content_hub.models.base import Base
-from content_hub.models.post import PLATFORM_STATUS_VALUES, utc_now
-from content_hub.models.types import JSONB
-
-
-PLATFORM_VALUES = (
-    "website",
-    "instagram",
-    "facebook",
-    "vk",
-    "telegram_story",
-    "whatsapp",
-)
+from content_hub.models.post import utc_now
+from content_hub.models.types import JSONB, enum_values
 
 
 class PublicationJob(Base):
@@ -28,15 +19,25 @@ class PublicationJob(Base):
     post_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    platform: Mapped[str] = mapped_column(
-        Enum(*PLATFORM_VALUES, name="publication_platform", native_enum=False),
+    platform: Mapped[PublicationPlatform] = mapped_column(
+        Enum(
+            PublicationPlatform,
+            name="publication_platform",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
         nullable=False,
         index=True,
     )
-    status: Mapped[str] = mapped_column(
-        Enum(*PLATFORM_STATUS_VALUES, name="platform_status", native_enum=False),
+    status: Mapped[PlatformStatus] = mapped_column(
+        Enum(
+            PlatformStatus,
+            name="platform_status",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
         nullable=False,
-        default="Waiting",
+        default=PlatformStatus.Waiting,
         index=True,
     )
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -6,11 +6,10 @@ from datetime import datetime
 from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from content_hub.enums import MediaType
 from content_hub.models.base import Base
 from content_hub.models.post import utc_now
-
-
-MEDIA_TYPE_VALUES = ("photo", "video")
+from content_hub.models.types import enum_values
 
 
 class Media(Base):
@@ -20,11 +19,17 @@ class Media(Base):
     post_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    type: Mapped[str] = mapped_column(
-        Enum(*MEDIA_TYPE_VALUES, name="media_type", native_enum=False), nullable=False
+    type: Mapped[MediaType] = mapped_column(
+        Enum(
+            MediaType,
+            name="media_type",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
+        nullable=False,
     )
-    file_url: Mapped[str] = mapped_column(Text, nullable=False)
-    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    file_url: Mapped[str | None] = mapped_column(Text)
+    storage_key: Mapped[str | None] = mapped_column(Text)
     telegram_file_id: Mapped[str] = mapped_column(Text, nullable=False)
     telegram_file_unique_id: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)

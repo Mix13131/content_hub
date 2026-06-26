@@ -6,12 +6,10 @@ from datetime import datetime
 from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from content_hub.enums import PublicationLogLevel
 from content_hub.models.base import Base
 from content_hub.models.post import utc_now
-from content_hub.models.types import JSONB
-
-
-LOG_LEVEL_VALUES = ("info", "warning", "error")
+from content_hub.models.types import JSONB, enum_values
 
 
 class PublicationLog(Base):
@@ -25,10 +23,15 @@ class PublicationLog(Base):
         Uuid, ForeignKey("publication_jobs.id", ondelete="CASCADE"), index=True
     )
     service: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    level: Mapped[str] = mapped_column(
-        Enum(*LOG_LEVEL_VALUES, name="publication_log_level", native_enum=False),
+    level: Mapped[PublicationLogLevel] = mapped_column(
+        Enum(
+            PublicationLogLevel,
+            name="publication_log_level",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
         nullable=False,
-        default="info",
+        default=PublicationLogLevel.info,
     )
     event: Mapped[str] = mapped_column(String(100), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)

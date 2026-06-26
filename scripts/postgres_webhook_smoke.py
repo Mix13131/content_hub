@@ -19,11 +19,12 @@ from sqlalchemy.orm import Session
 
 from content_hub.app import app
 from content_hub.db import SessionLocal
-from content_hub.models import Post, PublicationLog
+from content_hub.enums import MediaType, PostType
+from content_hub.models import Media, Post, PublicationLog
 from content_hub.settings import get_settings
 
 
-FIXTURE_PATH = PROJECT_ROOT / "tests" / "content_hub" / "fixtures" / "telegram_text_channel_post.json"
+FIXTURES_DIR = PROJECT_ROOT / "tests" / "content_hub" / "fixtures"
 
 
 def main() -> int:
@@ -37,46 +38,63 @@ def main() -> int:
         print(f"Current driver: {url.drivername}", file=sys.stderr)
         return 2
 
-    payload = build_payload()
+    payloads = [
+        build_payload("telegram_text_channel_post.json", offset=1),
+        build_payload("telegram_photo_channel_post.json", offset=2),
+        build_payload("telegram_video_channel_post.json", offset=3),
+    ]
     headers = {}
     if settings.telegram_webhook_secret:
         headers["X-Telegram-Bot-Api-Secret-Token"] = settings.telegram_webhook_secret
 
     with TestClient(app) as client:
-        first_response = client.post("/webhooks/telegram", json=payload, headers=headers)
-        second_response = client.post("/webhooks/telegram", json=payload, headers=headers)
+        for payload in payloads:
+            first_response = client.post(
+                "/webhooks/telegram", json=payload, headers=headers
+            )
+            second_response = client.post(
+                "/webhooks/telegram", json=payload, headers=headers
+            )
 
-    first_response.raise_for_status()
-    second_response.raise_for_status()
-    first_body = first_response.json()
-    second_body = second_response.json()
+            first_response.raise_for_status()
+            second_response.raise_for_status()
+            first_body = first_response.json()
+            second_body = second_response.json()
 
-    assert first_body["created"] is True, first_body
-    assert second_body["created"] is False, second_body
-    assert second_body["reason"] == "duplicate", second_body
-    assert first_body["post_id"] == second_body["post_id"], (first_body, second_body)
+            assert first_body["created"] is True, first_body
+            assert second_body["created"] is False, second_body
+            assert second_body["reason"] == "duplicate", second_body
+            assert first_body["post_id"] == second_body["post_id"], (
+                first_body,
+                second_body,
+            )
 
     with SessionLocal() as db:
-        post = verify_post(db, payload)
+        posts = [verify_post(db, payload) for payload in payloads]
         verify_postgres_column_types(db)
         print("PostgreSQL webhook smoke passed.")
-        print(f"Post id: {post.id}")
-        print(f"Telegram chat/post: {post.telegram_chat_id}/{post.telegram_post_id}")
-        print(f"Text: {post.text}")
+        for post in posts:
+            print(
+                f"{post.post_type.value}: {post.id} "
+                f"{post.telegram_chat_id}/{post.telegram_post_id}"
+            )
     return 0
 
 
-def build_payload() -> dict[str, Any]:
-    payload = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+def build_payload(fixture_name: str, offset: int) -> dict[str, Any]:
+    payload = json.loads((FIXTURES_DIR / fixture_name).read_text(encoding="utf-8"))
     payload = copy.deepcopy(payload)
     now = datetime.now(timezone.utc)
-    unique_id = int(time.time() * 1000)
+    unique_id = int(time.time() * 1000) + offset
 
     payload["update_id"] = unique_id
     message = payload["channel_post"]
     message["message_id"] = unique_id
     message["date"] = int(now.timestamp())
-    message["text"] = f"PostgreSQL smoke post {now.isoformat()}"
+    if "text" in message:
+        message["text"] = f"PostgreSQL smoke text post {now.isoformat()}"
+    if "caption" in message:
+        message["caption"] = f"PostgreSQL smoke {fixture_name} {now.isoformat()}"
     return payload
 
 
@@ -94,7 +112,7 @@ def verify_post(db: Session, payload: dict[str, Any]) -> Post:
     assert post is not None
     assert isinstance(post.id, uuid.UUID), type(post.id)
     assert post.telegram_message_ids == [message_id]
-    assert post.text == message["text"]
+    assert post.text == (message.get("text") or message.get("caption") or "")
     assert post.status == "saved"
     assert post.website_status == "Waiting"
     assert post.instagram_status == "Waiting"
@@ -106,7 +124,44 @@ def verify_post(db: Session, payload: dict[str, Any]) -> Post:
     assert log is not None
     assert log.service == "telegram"
     assert log.event == "post_received"
+    verify_media(db, post, message)
     return post
+
+
+def verify_media(db: Session, post: Post, message: dict[str, Any]) -> None:
+    media_rows = db.scalars(select(Media).where(Media.post_id == post.id)).all()
+    if "photo" in message:
+        assert post.post_type == PostType.photo
+        assert post.photo_count == 1
+        assert post.video_count == 0
+        assert len(media_rows) == 1
+        media = media_rows[0]
+        assert media.type == MediaType.photo
+        assert media.telegram_file_id == "photo-large-file-id"
+        assert media.telegram_file_unique_id == "photo-large-unique-id"
+        assert media.file_url is None
+        assert media.storage_key is None
+        return
+
+    if "video" in message:
+        assert post.post_type == PostType.video
+        assert post.photo_count == 0
+        assert post.video_count == 1
+        assert len(media_rows) == 1
+        media = media_rows[0]
+        assert media.type == MediaType.video
+        assert media.telegram_file_id == "video-file-id"
+        assert media.telegram_file_unique_id == "video-unique-id"
+        assert media.mime_type == "video/mp4"
+        assert media.duration_seconds == 27
+        assert media.file_url is None
+        assert media.storage_key is None
+        return
+
+    assert post.post_type == PostType.text
+    assert post.photo_count == 0
+    assert post.video_count == 0
+    assert media_rows == []
 
 
 def verify_postgres_column_types(db: Session) -> None:

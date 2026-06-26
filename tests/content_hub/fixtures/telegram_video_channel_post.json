@@ -1,0 +1,30 @@
+{
+  "update_id": 1000003,
+  "channel_post": {
+    "message_id": 44,
+    "sender_chat": {
+      "id": -1001234567890,
+      "title": "Content Hub Test Channel",
+      "type": "channel",
+      "username": "content_hub_test"
+    },
+    "chat": {
+      "id": -1001234567890,
+      "title": "Content Hub Test Channel",
+      "type": "channel",
+      "username": "content_hub_test"
+    },
+    "date": 1717243400,
+    "caption": "Короткое видео про интерьер",
+    "author_signature": "Юлия Смирнова",
+    "video": {
+      "file_id": "video-file-id",
+      "file_unique_id": "video-unique-id",
+      "width": 1080,
+      "height": 1920,
+      "duration": 27,
+      "mime_type": "video/mp4",
+      "file_size": 4200000
+    }
+  }
+}

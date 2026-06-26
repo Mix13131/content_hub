@@ -7,22 +7,9 @@ from sqlalchemy import BigInteger, DateTime, Enum, Integer, String, Text, Unique
 from sqlalchemy import Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from content_hub.enums import ContentSource, PlatformStatus, PostStatus, PostType
 from content_hub.models.base import Base
-from content_hub.models.types import JSONB
-
-
-POST_TYPE_VALUES = ("text", "photo", "video", "carousel", "mixed")
-POST_SOURCE_VALUES = ("telegram_channel",)
-POST_STATUS_VALUES = (
-    "received",
-    "saving_media",
-    "saved",
-    "queued",
-    "partially_published",
-    "published",
-    "error",
-)
-PLATFORM_STATUS_VALUES = ("Waiting", "Publishing", "Success", "Error", "Retry")
+from content_hub.models.types import JSONB, enum_values
 
 
 def utc_now() -> datetime:
@@ -55,45 +42,80 @@ class Post(Base):
     telegram_posted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    post_type: Mapped[str] = mapped_column(
-        Enum(*POST_TYPE_VALUES, name="post_type", native_enum=False),
+    post_type: Mapped[PostType] = mapped_column(
+        Enum(PostType, name="post_type", native_enum=False, values_callable=enum_values),
         nullable=False,
-        default="text",
+        default=PostType.text,
     )
     photo_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     video_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    source: Mapped[str] = mapped_column(
-        Enum(*POST_SOURCE_VALUES, name="post_source", native_enum=False),
+    source: Mapped[ContentSource] = mapped_column(
+        Enum(
+            ContentSource,
+            name="post_source",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
         nullable=False,
-        default="telegram_channel",
+        default=ContentSource.telegram_channel,
     )
-    status: Mapped[str] = mapped_column(
-        Enum(*POST_STATUS_VALUES, name="post_status", native_enum=False),
+    status: Mapped[PostStatus] = mapped_column(
+        Enum(
+            PostStatus,
+            name="post_status",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
         nullable=False,
-        default="saved",
+        default=PostStatus.saved,
     )
-    website_status: Mapped[str] = mapped_column(
-        Enum(*PLATFORM_STATUS_VALUES, name="platform_status", native_enum=False),
+    website_status: Mapped[PlatformStatus] = mapped_column(
+        Enum(
+            PlatformStatus,
+            name="platform_status",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
         nullable=False,
-        default="Waiting",
+        default=PlatformStatus.Waiting,
     )
-    instagram_status: Mapped[str] = mapped_column(
-        Enum(*PLATFORM_STATUS_VALUES, name="platform_status", native_enum=False),
+    instagram_status: Mapped[PlatformStatus] = mapped_column(
+        Enum(
+            PlatformStatus,
+            name="platform_status",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
         nullable=False,
-        default="Waiting",
+        default=PlatformStatus.Waiting,
     )
-    facebook_status: Mapped[str] = mapped_column(
-        Enum(*PLATFORM_STATUS_VALUES, name="platform_status", native_enum=False),
+    facebook_status: Mapped[PlatformStatus] = mapped_column(
+        Enum(
+            PlatformStatus,
+            name="platform_status",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
         nullable=False,
-        default="Waiting",
+        default=PlatformStatus.Waiting,
     )
-    vk_status: Mapped[str] = mapped_column(
-        Enum(*PLATFORM_STATUS_VALUES, name="platform_status", native_enum=False),
+    vk_status: Mapped[PlatformStatus] = mapped_column(
+        Enum(
+            PlatformStatus,
+            name="platform_status",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
         nullable=False,
-        default="Waiting",
+        default=PlatformStatus.Waiting,
     )
-    story_status: Mapped[str | None] = mapped_column(
-        Enum(*PLATFORM_STATUS_VALUES, name="platform_status", native_enum=False)
+    story_status: Mapped[PlatformStatus | None] = mapped_column(
+        Enum(
+            PlatformStatus,
+            name="platform_status",
+            native_enum=False,
+            values_callable=enum_values,
+        )
     )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
