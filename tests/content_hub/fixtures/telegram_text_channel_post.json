@@ -1,0 +1,21 @@
+{
+  "update_id": 1000001,
+  "channel_post": {
+    "message_id": 42,
+    "sender_chat": {
+      "id": -1001234567890,
+      "title": "Content Hub Test Channel",
+      "type": "channel",
+      "username": "content_hub_test"
+    },
+    "chat": {
+      "id": -1001234567890,
+      "title": "Content Hub Test Channel",
+      "type": "channel",
+      "username": "content_hub_test"
+    },
+    "date": 1717243200,
+    "text": "Новый пост о матрасах и уютной спальне",
+    "author_signature": "Юлия Смирнова"
+  }
+}
