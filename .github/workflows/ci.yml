@@ -23,11 +23,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-    env:
-      CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
-      CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET: ci-telegram-secret
-      CONTENT_HUB_ADMIN_API_TOKEN: ci-admin-token
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -52,19 +47,38 @@ jobs:
         run: git diff --check
 
       - name: Run migrations
+        env:
+          CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
         run: python -m alembic -c content_hub/alembic.ini upgrade head
 
       - name: Run PostgreSQL webhook smoke
+        env:
+          CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
+          CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET: ci-telegram-secret
         run: python scripts/postgres_webhook_smoke.py
 
       - name: Run publication status smoke
+        env:
+          CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
+          CONTENT_HUB_ADMIN_API_TOKEN: ci-admin-token
         run: python scripts/publication_status_smoke.py
 
       - name: Run admin jobs smoke
+        env:
+          CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
+          CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET: ci-telegram-secret
+          CONTENT_HUB_ADMIN_API_TOKEN: ci-admin-token
         run: python scripts/admin_jobs_smoke.py
 
       - name: Run admin posts smoke
+        env:
+          CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
+          CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET: ci-telegram-secret
+          CONTENT_HUB_ADMIN_API_TOKEN: ci-admin-token
         run: python scripts/admin_posts_smoke.py
 
       - name: Run public posts smoke
+        env:
+          CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
+          CONTENT_HUB_ADMIN_API_TOKEN: ci-admin-token
         run: python scripts/public_posts_smoke.py
