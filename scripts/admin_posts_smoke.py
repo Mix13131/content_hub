@@ -18,8 +18,10 @@ from sqlalchemy.engine import make_url
 
 from content_hub.app import app
 from content_hub.db import SessionLocal
-from content_hub.enums import MediaType, PostType, PublicationPlatform
+from content_hub.enums import MediaType, PlatformStatus, PostStatus, PostType
+from content_hub.enums import PublicationPlatform
 from content_hub.models import Media, Post, PublicationJob, PublicationLog
+from content_hub.services.publication_status import PublicationStatusService
 from content_hub.settings import get_settings
 
 
@@ -102,6 +104,89 @@ def main() -> int:
         assert len(detail_body["jobs"]) == 4
         assert len(detail_body["logs"]) >= 2
 
+        with SessionLocal() as db:
+            service = PublicationStatusService()
+            website_job = get_job(db, post_id, PublicationPlatform.website)
+            service.start_job(website_job.id, db)
+            service.mark_error(
+                website_job.id,
+                db,
+                error_code="ADMIN_POST_RETRY_SINGLE",
+                error_message="Prepared single retry",
+            )
+            db.commit()
+
+        retry_one_response = client.post(
+            f"/admin/posts/{post_id}/retry/{PublicationPlatform.website.value}",
+            headers=admin_headers,
+        )
+        retry_one_response.raise_for_status()
+        retry_one_body = retry_one_response.json()
+        assert retry_one_body["retried_count"] == 1
+        assert retry_one_body["retried_platforms"] == [
+            PublicationPlatform.website.value
+        ]
+        website_job_body = job_from_detail(
+            retry_one_body["post"],
+            PublicationPlatform.website,
+        )
+        assert website_job_body["status"] == PlatformStatus.Waiting.value
+        assert website_job_body["attempt_count"] == 1
+        assert website_job_body["last_error_code"] is None
+
+        with SessionLocal() as db:
+            service = PublicationStatusService()
+            instagram_job = get_job(db, post_id, PublicationPlatform.instagram)
+            vk_job = get_job(db, post_id, PublicationPlatform.vk)
+            facebook_job = get_job(db, post_id, PublicationPlatform.facebook)
+            service.start_job(instagram_job.id, db)
+            service.mark_error(
+                instagram_job.id,
+                db,
+                error_code="ADMIN_POST_RETRY_FAILED",
+                error_message="Prepared failed retry",
+            )
+            service.start_job(vk_job.id, db)
+            service.schedule_retry(
+                vk_job.id,
+                db,
+                error_code="ADMIN_POST_RETRY_SCHEDULED",
+                error_message="Prepared scheduled retry",
+            )
+            service.mark_success(facebook_job.id, db)
+            db.commit()
+
+        retry_failed_response = client.post(
+            f"/admin/posts/{post_id}/retry-failed",
+            headers=admin_headers,
+        )
+        retry_failed_response.raise_for_status()
+        retry_failed_body = retry_failed_response.json()
+        assert retry_failed_body["retried_count"] == 2
+        assert set(retry_failed_body["retried_platforms"]) == {
+            PublicationPlatform.instagram.value,
+            PublicationPlatform.vk.value,
+        }
+        assert job_from_detail(
+            retry_failed_body["post"],
+            PublicationPlatform.website,
+        )["status"] == PlatformStatus.Waiting.value
+        assert job_from_detail(
+            retry_failed_body["post"],
+            PublicationPlatform.instagram,
+        )["status"] == PlatformStatus.Waiting.value
+        assert job_from_detail(
+            retry_failed_body["post"],
+            PublicationPlatform.vk,
+        )["status"] == PlatformStatus.Waiting.value
+        assert job_from_detail(
+            retry_failed_body["post"],
+            PublicationPlatform.facebook,
+        )["status"] == PlatformStatus.Success.value
+        assert retry_failed_body["post"]["status"] == (
+            PostStatus.partially_published.value
+        )
+
     with SessionLocal() as db:
         post = db.get(Post, post_id)
         assert post is not None
@@ -118,6 +203,19 @@ def main() -> int:
         ).all()
         assert len(jobs) == 4
         assert len(logs) >= 2
+        jobs_by_platform = {job.platform: job for job in jobs}
+        assert jobs_by_platform[PublicationPlatform.website].status == (
+            PlatformStatus.Waiting
+        )
+        assert jobs_by_platform[PublicationPlatform.instagram].status == (
+            PlatformStatus.Waiting
+        )
+        assert jobs_by_platform[PublicationPlatform.vk].status == (
+            PlatformStatus.Waiting
+        )
+        assert jobs_by_platform[PublicationPlatform.facebook].status == (
+            PlatformStatus.Success
+        )
 
     print("Admin posts PostgreSQL smoke passed.")
     print(f"post: {post_id}")
@@ -137,6 +235,31 @@ def build_payload() -> dict[str, Any]:
     message["date"] = int(now.timestamp())
     message["caption"] = f"PostgreSQL admin posts smoke {now.isoformat()}"
     return payload
+
+
+def get_job(
+    db,
+    post_id: uuid.UUID,
+    platform: PublicationPlatform,
+) -> PublicationJob:
+    job = db.scalar(
+        select(PublicationJob).where(
+            PublicationJob.post_id == post_id,
+            PublicationJob.platform == platform,
+        )
+    )
+    assert job is not None
+    return job
+
+
+def job_from_detail(
+    detail: dict[str, Any],
+    platform: PublicationPlatform,
+) -> dict[str, Any]:
+    for job in detail["jobs"]:
+        if job["platform"] == platform.value:
+            return job
+    raise AssertionError(f"Missing job for platform {platform.value}")
 
 
 if __name__ == "__main__":

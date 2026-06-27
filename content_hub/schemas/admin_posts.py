@@ -11,6 +11,7 @@ from content_hub.enums import (
     PlatformStatus,
     PostStatus,
     PostType,
+    PublicationPlatform,
 )
 from content_hub.schemas.admin_jobs import AdminJobLogResponse, AdminJobResponse
 
@@ -64,3 +65,9 @@ class AdminPostDetailResponse(AdminPostSummaryResponse):
     media: list[AdminMediaResponse]
     jobs: list[AdminJobResponse]
     logs: list[AdminJobLogResponse]
+
+
+class AdminPostRetryResponse(BaseModel):
+    post: AdminPostDetailResponse
+    retried_count: int
+    retried_platforms: list[PublicationPlatform]

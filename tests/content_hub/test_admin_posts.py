@@ -167,3 +167,218 @@ def test_unknown_admin_post_returns_404(admin_client: TestClient) -> None:
     )
 
     assert response.status_code == 404
+
+
+def test_retry_post_platform_requires_token(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.post(f"/admin/posts/{post.id}/retry/instagram")
+
+    assert response.status_code == 403
+
+
+def test_retry_post_platform_returns_job_to_waiting_without_resetting_attempts(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    job = db_session.scalar(
+        select(PublicationJob).where(
+            PublicationJob.post_id == post.id,
+            PublicationJob.platform == PublicationPlatform.instagram,
+        )
+    )
+    assert job is not None
+    service = PublicationStatusService()
+    service.start_job(job.id, db_session)
+    service.mark_error(
+        job.id,
+        db_session,
+        error_code="IG_ERROR",
+        error_message="Instagram failed",
+    )
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/retry/instagram",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["retried_count"] == 1
+    assert body["retried_platforms"] == [PublicationPlatform.instagram.value]
+    retried_job = next(
+        job
+        for job in body["post"]["jobs"]
+        if job["platform"] == PublicationPlatform.instagram.value
+    )
+    assert retried_job["status"] == PlatformStatus.Waiting.value
+    assert retried_job["attempt_count"] == 1
+    assert retried_job["last_error_code"] is None
+    assert retried_job["last_error_message"] is None
+
+
+def test_retry_post_platform_recalculates_post_status(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    jobs = db_session.scalars(
+        select(PublicationJob).where(PublicationJob.post_id == post.id)
+    ).all()
+    service = PublicationStatusService()
+    for job in jobs:
+        service.mark_error(job.id, db_session)
+    assert post.status == PostStatus.error
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/retry/website",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["post"]["status"] == PostStatus.queued.value
+    assert body["post"]["website_status"] == PlatformStatus.Waiting.value
+
+
+def test_retry_post_platform_for_success_job_returns_409(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    job = db_session.scalar(
+        select(PublicationJob).where(
+            PublicationJob.post_id == post.id,
+            PublicationJob.platform == PublicationPlatform.website,
+        )
+    )
+    assert job is not None
+    PublicationStatusService().mark_success(job.id, db_session)
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/retry/website",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 409
+
+
+def test_retry_post_platform_unknown_post_returns_404(
+    admin_client: TestClient,
+) -> None:
+    response = admin_client.post(
+        f"/admin/posts/{uuid.uuid4()}/retry/instagram",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 404
+
+
+def test_retry_post_platform_unknown_job_returns_404(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/retry/telegram_story",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 404
+
+
+def test_retry_post_platform_invalid_platform_returns_422(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/retry/not-a-platform",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 422
+
+
+def test_retry_failed_post_jobs_returns_only_error_and_retry_jobs_to_waiting(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    jobs = {
+        job.platform: job
+        for job in db_session.scalars(
+            select(PublicationJob).where(PublicationJob.post_id == post.id)
+        ).all()
+    }
+    service = PublicationStatusService()
+    service.start_job(jobs[PublicationPlatform.website].id, db_session)
+    service.mark_error(
+        jobs[PublicationPlatform.website].id,
+        db_session,
+        error_code="WEBSITE_ERROR",
+        error_message="Website failed",
+    )
+    service.start_job(jobs[PublicationPlatform.instagram].id, db_session)
+    service.schedule_retry(
+        jobs[PublicationPlatform.instagram].id,
+        db_session,
+        error_code="IG_TIMEOUT",
+        error_message="Instagram timeout",
+    )
+    service.mark_success(jobs[PublicationPlatform.vk].id, db_session)
+    service.start_job(jobs[PublicationPlatform.facebook].id, db_session)
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/retry-failed",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["retried_count"] == 2
+    assert set(body["retried_platforms"]) == {
+        PublicationPlatform.website.value,
+        PublicationPlatform.instagram.value,
+    }
+    jobs_by_platform = {
+        job["platform"]: job
+        for job in body["post"]["jobs"]
+    }
+    assert jobs_by_platform[PublicationPlatform.website.value]["status"] == (
+        PlatformStatus.Waiting.value
+    )
+    assert jobs_by_platform[PublicationPlatform.instagram.value]["status"] == (
+        PlatformStatus.Waiting.value
+    )
+    assert jobs_by_platform[PublicationPlatform.vk.value]["status"] == (
+        PlatformStatus.Success.value
+    )
+    assert jobs_by_platform[PublicationPlatform.facebook.value]["status"] == (
+        PlatformStatus.Publishing.value
+    )
+    assert body["post"]["status"] == PostStatus.partially_published.value
+
+
+def test_retry_failed_post_jobs_returns_zero_when_nothing_matches(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/retry-failed",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["retried_count"] == 0
+    assert body["retried_platforms"] == []
+    assert body["post"]["status"] == PostStatus.queued.value

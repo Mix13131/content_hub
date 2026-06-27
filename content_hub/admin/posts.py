@@ -16,7 +16,12 @@ from content_hub.schemas.admin_jobs import AdminJobLogResponse, AdminJobResponse
 from content_hub.schemas.admin_posts import (
     AdminMediaResponse,
     AdminPostDetailResponse,
+    AdminPostRetryResponse,
     AdminPostSummaryResponse,
+)
+from content_hub.services.publication_status import (
+    PublicationStatusError,
+    PublicationStatusService,
 )
 
 
@@ -65,6 +70,85 @@ def list_posts(
 def get_post_detail(
     post_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
+) -> AdminPostDetailResponse:
+    return _build_post_detail_response(post_id, db)
+
+
+@router.post("/{post_id}/retry/{platform}", response_model=AdminPostRetryResponse)
+def retry_post_platform(
+    post_id: uuid.UUID,
+    platform: PublicationPlatform,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminPostRetryResponse:
+    _get_post_or_404(post_id, db)
+    job = _get_job_or_404(post_id, platform, db)
+    try:
+        PublicationStatusService().manual_retry(job.id, db)
+    except PublicationStatusError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    db.commit()
+    return AdminPostRetryResponse(
+        post=_build_post_detail_response(post_id, db),
+        retried_count=1,
+        retried_platforms=[platform],
+    )
+
+
+@router.post("/{post_id}/retry-failed", response_model=AdminPostRetryResponse)
+def retry_failed_post_jobs(
+    post_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminPostRetryResponse:
+    _get_post_or_404(post_id, db)
+    jobs = db.scalars(
+        select(PublicationJob)
+        .where(PublicationJob.post_id == post_id)
+        .where(PublicationJob.status.in_([PlatformStatus.Error, PlatformStatus.Retry]))
+        .order_by(PublicationJob.platform)
+    ).all()
+
+    retried_platforms: list[PublicationPlatform] = []
+    service = PublicationStatusService()
+    for job in jobs:
+        service.manual_retry(job.id, db)
+        retried_platforms.append(job.platform)
+
+    db.commit()
+    return AdminPostRetryResponse(
+        post=_build_post_detail_response(post_id, db),
+        retried_count=len(retried_platforms),
+        retried_platforms=retried_platforms,
+    )
+
+
+def _get_post_or_404(post_id: uuid.UUID, db: Session) -> Post:
+    post = db.get(Post, post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
+
+
+def _get_job_or_404(
+    post_id: uuid.UUID,
+    platform: PublicationPlatform,
+    db: Session,
+) -> PublicationJob:
+    job = db.scalar(
+        select(PublicationJob).where(
+            PublicationJob.post_id == post_id,
+            PublicationJob.platform == platform,
+        )
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Publication job not found")
+    return job
+
+
+def _build_post_detail_response(
+    post_id: uuid.UUID,
+    db: Session,
 ) -> AdminPostDetailResponse:
     post = db.scalar(
         select(Post)
