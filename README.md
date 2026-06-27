@@ -1,5 +1,7 @@
 # Content Hub
 
+[![CI](https://github.com/Mix13131/content_hub/actions/workflows/ci.yml/badge.svg)](https://github.com/Mix13131/content_hub/actions/workflows/ci.yml)
+
 Content Hub is a FastAPI backend for ingesting posts from a Telegram channel and preparing them for automatic publication to a website and social platforms.
 
 Current implementation covers metadata-only core ingestion:
@@ -59,6 +61,12 @@ Admin job endpoints are protected by `CONTENT_HUB_ADMIN_API_TOKEN` when it is se
 Public post endpoints do not require an admin token and return only posts with `is_public=true` and `status!=error`. Responses include `is_public`, return metadata-only media fields, and do not expose Telegram file identifiers or storage keys.
 
 See [docs/postgres_smoke.md](docs/postgres_smoke.md).
+
+## CI
+
+GitHub Actions runs on every push and pull request. The CI installs dependencies, runs the Content Hub pytest suite, compiles Python files, checks whitespace, applies Alembic migrations to a local PostgreSQL service, and runs the PostgreSQL smoke scripts.
+
+CI uses test fixtures and a local `postgres:16-alpine` service only. It does not require real Telegram, Neon, S3, Instagram, VK, or Facebook credentials.
 
 ## Run App
 

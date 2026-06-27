@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: content_hub
+          POSTGRES_USER: content_hub
+          POSTGRES_PASSWORD: content_hub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U content_hub -d content_hub"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
+      CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET: ci-telegram-secret
+      CONTENT_HUB_ADMIN_API_TOKEN: ci-admin-token
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest tests/content_hub -q
+
+      - name: Compile Python files
+        run: python -m py_compile $(find content_hub tests/content_hub scripts -name '*.py' -print)
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Run migrations
+        run: python -m alembic -c content_hub/alembic.ini upgrade head
+
+      - name: Run PostgreSQL webhook smoke
+        run: python scripts/postgres_webhook_smoke.py
+
+      - name: Run publication status smoke
+        run: python scripts/publication_status_smoke.py
+
+      - name: Run admin jobs smoke
+        run: python scripts/admin_jobs_smoke.py
+
+      - name: Run admin posts smoke
+        run: python scripts/admin_posts_smoke.py
+
+      - name: Run public posts smoke
+        run: python scripts/public_posts_smoke.py
