@@ -68,6 +68,8 @@ GitHub Actions runs on every push and pull request. The CI installs dependencies
 
 CI uses test fixtures and a local `postgres:16-alpine` service only. It does not require real Telegram, Neon, S3, Instagram, VK, or Facebook credentials.
 
+Branch protection requires the GitHub Actions `test` check before merging into `main`.
+
 ## Run App
 
 ```bash
