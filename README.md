@@ -16,6 +16,7 @@ Current implementation covers metadata-only core ingestion:
 - DB-only PublicationJob status and retry lifecycle service;
 - minimal token-protected admin API endpoints for PublicationJob lifecycle checks;
 - read-only admin API endpoints for Post, Media, PublicationJob, and PublicationLog inspection;
+- token-protected admin endpoints to publish/unpublish posts in the public API;
 - public read-only posts API for future site sections;
 - idempotency by `telegram_chat_id + telegram_post_id`;
 - tests for health, ingestion, idempotency, media metadata, PublicationJob rows, status lifecycle, public posts, and saved Post fields.
@@ -55,7 +56,7 @@ The optional publication status smoke checks DB-only status transitions and manu
 
 Admin job endpoints are protected by `CONTENT_HUB_ADMIN_API_TOKEN` when it is set. In local development, if the token is empty, the endpoints are open for manual smoke checks.
 
-Public post endpoints do not require an admin token and return metadata-only media fields. They do not expose Telegram file identifiers or storage keys.
+Public post endpoints do not require an admin token and return only posts with `is_public=true` and `status!=error`. Responses include `is_public`, return metadata-only media fields, and do not expose Telegram file identifiers or storage keys.
 
 See [docs/postgres_smoke.md](docs/postgres_smoke.md).
 

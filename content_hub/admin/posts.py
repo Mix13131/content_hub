@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from content_hub.admin.auth import verify_admin_token
 from content_hub.db import get_db
-from content_hub.enums import PlatformStatus, PostStatus, PostType, PublicationPlatform
+from content_hub.enums import (
+    PlatformStatus,
+    PostStatus,
+    PostType,
+    PublicationLogLevel,
+    PublicationPlatform,
+)
 from content_hub.models import Post, PublicationJob, PublicationLog
 from content_hub.schemas.admin_jobs import AdminJobLogResponse, AdminJobResponse
 from content_hub.schemas.admin_posts import (
@@ -39,6 +45,7 @@ def list_posts(
     post_type: PostType | None = None,
     platform: PublicationPlatform | None = None,
     platform_status: PlatformStatus | None = None,
+    is_public: bool | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
@@ -57,6 +64,8 @@ def list_posts(
         statement = statement.where(PublicationJob.platform == platform)
     if platform_status is not None:
         statement = statement.where(PublicationJob.status == platform_status)
+    if is_public is not None:
+        statement = statement.where(Post.is_public.is_(is_public))
     if date_from is not None:
         statement = statement.where(Post.telegram_posted_at >= date_from)
     if date_to is not None:
@@ -72,6 +81,34 @@ def get_post_detail(
     db: Annotated[Session, Depends(get_db)],
 ) -> AdminPostDetailResponse:
     return _build_post_detail_response(post_id, db)
+
+
+@router.post("/{post_id}/publish", response_model=AdminPostDetailResponse)
+def publish_post(
+    post_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminPostDetailResponse:
+    return _set_post_public_visibility(
+        post_id=post_id,
+        db=db,
+        is_public=True,
+        event="post_published_publicly",
+        message="Post made public",
+    )
+
+
+@router.post("/{post_id}/unpublish", response_model=AdminPostDetailResponse)
+def unpublish_post(
+    post_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminPostDetailResponse:
+    return _set_post_public_visibility(
+        post_id=post_id,
+        db=db,
+        is_public=False,
+        event="post_unpublished_publicly",
+        message="Post hidden from public API",
+    )
 
 
 @router.post("/{post_id}/retry/{platform}", response_model=AdminPostRetryResponse)
@@ -146,6 +183,28 @@ def _get_job_or_404(
     return job
 
 
+def _set_post_public_visibility(
+    post_id: uuid.UUID,
+    db: Session,
+    is_public: bool,
+    event: str,
+    message: str,
+) -> AdminPostDetailResponse:
+    post = _get_post_or_404(post_id, db)
+    post.is_public = is_public
+    db.add(
+        PublicationLog(
+            post_id=post.id,
+            service="admin",
+            level=PublicationLogLevel.info,
+            event=event,
+            message=message,
+        )
+    )
+    db.commit()
+    return _build_post_detail_response(post_id, db)
+
+
 def _build_post_detail_response(
     post_id: uuid.UUID,
     db: Session,
@@ -197,6 +256,7 @@ def _build_post_summary(post: Post) -> AdminPostSummaryResponse:
         post_type=post.post_type,
         photo_count=post.photo_count,
         video_count=post.video_count,
+        is_public=post.is_public,
         source=post.source,
         status=post.status,
         website_status=post.website_status,

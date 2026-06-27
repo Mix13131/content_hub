@@ -22,10 +22,11 @@ It covers:
 - no duplicate jobs after repeated webhook delivery;
 - unique `publication_jobs(post_id, platform)` constraint;
 - `Post.status = queued` after jobs are created;
+- `posts.is_public = false` for new Telegram posts;
 - DB-only publication job lifecycle: start, success, error, aggregate partial status, and manual retry;
 - token-protected admin job API lifecycle: list, detail, start, success, error, retry;
-- token-protected read-only admin posts API: list, detail, media, jobs, logs;
-- public read-only posts API without admin token: list, detail, metadata-only media, no private Telegram file identifiers;
+- token-protected admin posts API: list, detail, media, jobs, logs, publish, unpublish;
+- public read-only posts API without admin token: only `is_public=true` and non-error posts, metadata-only media, no private Telegram file identifiers;
 - saved `PublicationLog` row.
 
 It does not perform Telegram file downloads, S3 uploads, worker execution, or publisher API calls. It also does not cover Dramatiq, Instagram, VK, Facebook API, admin UI, AI, Stories, WhatsApp, or media groups.

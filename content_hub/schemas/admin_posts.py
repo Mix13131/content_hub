@@ -47,6 +47,7 @@ class AdminPostSummaryResponse(BaseModel):
     post_type: PostType
     photo_count: int
     video_count: int
+    is_public: bool
     source: ContentSource
     status: PostStatus
     website_status: PlatformStatus

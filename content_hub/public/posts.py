@@ -19,13 +19,6 @@ from content_hub.schemas.public_posts import (
 )
 
 
-PUBLIC_POST_STATUSES: tuple[PostStatus, ...] = (
-    PostStatus.queued,
-    PostStatus.partially_published,
-    PostStatus.published,
-)
-
-
 router = APIRouter(prefix="/api/posts/public", tags=["public-posts"])
 
 
@@ -39,7 +32,8 @@ def list_public_posts(
 ) -> list[PublicPostSummaryResponse]:
     statement = (
         select(Post)
-        .where(Post.status.in_(PUBLIC_POST_STATUSES))
+        .where(Post.is_public.is_(True))
+        .where(Post.status != PostStatus.error)
         .options(selectinload(Post.media))
         .order_by(Post.telegram_posted_at.desc(), Post.created_at.desc())
     )
@@ -62,7 +56,8 @@ def get_public_post_detail(
     post = db.scalar(
         select(Post)
         .where(Post.id == post_id)
-        .where(Post.status.in_(PUBLIC_POST_STATUSES))
+        .where(Post.is_public.is_(True))
+        .where(Post.status != PostStatus.error)
         .options(selectinload(Post.media))
     )
     if post is None:
@@ -81,6 +76,7 @@ def _build_post_summary(post: Post) -> PublicPostSummaryResponse:
         post_type=post.post_type,
         photo_count=post.photo_count,
         video_count=post.video_count,
+        is_public=post.is_public,
         created_at=post.created_at,
         media_count=len(media),
         has_photo=post.photo_count > 0,
@@ -99,6 +95,7 @@ def _build_post_detail(post: Post) -> PublicPostDetailResponse:
         post_type=post.post_type,
         photo_count=post.photo_count,
         video_count=post.video_count,
+        is_public=post.is_public,
         created_at=post.created_at,
         media=[
             _build_detail_media_response(item)

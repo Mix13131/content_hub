@@ -36,6 +36,7 @@ class PublicPostSummaryResponse(BaseModel):
     post_type: PostType
     photo_count: int
     video_count: int
+    is_public: bool
     created_at: datetime
     media_count: int
     has_photo: bool
@@ -52,5 +53,6 @@ class PublicPostDetailResponse(BaseModel):
     post_type: PostType
     photo_count: int
     video_count: int
+    is_public: bool
     created_at: datetime
     media: list[PublicPostDetailMediaResponse]

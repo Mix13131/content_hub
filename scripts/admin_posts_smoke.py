@@ -87,6 +87,7 @@ def main() -> int:
         assert len(posts) == 1, list_response.json()
         assert posts[0]["photo_count"] == 1
         assert posts[0]["video_count"] == 0
+        assert posts[0]["is_public"] is False
         assert "PostgreSQL admin posts smoke" in posts[0]["text_preview"]
 
         detail_response = client.get(
@@ -97,12 +98,55 @@ def main() -> int:
         detail_body = detail_response.json()
         assert detail_body["id"] == str(post_id)
         assert detail_body["post_type"] == PostType.photo.value
+        assert detail_body["is_public"] is False
         assert len(detail_body["media"]) == 1
         assert detail_body["media"][0]["type"] == MediaType.photo.value
         assert detail_body["media"][0]["file_url"] is None
         assert detail_body["media"][0]["storage_key"] is None
         assert len(detail_body["jobs"]) == 4
         assert len(detail_body["logs"]) >= 2
+
+        public_before_response = client.get("/api/posts/public")
+        public_before_response.raise_for_status()
+        public_before_ids = {
+            uuid.UUID(post["id"])
+            for post in public_before_response.json()
+        }
+        assert post_id not in public_before_ids
+
+        publish_response = client.post(
+            f"/admin/posts/{post_id}/publish",
+            headers=admin_headers,
+        )
+        publish_response.raise_for_status()
+        publish_body = publish_response.json()
+        assert publish_body["is_public"] is True
+        assert publish_body["logs"][0]["event"] == "post_published_publicly"
+
+        public_after_publish_response = client.get("/api/posts/public")
+        public_after_publish_response.raise_for_status()
+        public_after_publish_ids = {
+            uuid.UUID(post["id"])
+            for post in public_after_publish_response.json()
+        }
+        assert post_id in public_after_publish_ids
+
+        unpublish_response = client.post(
+            f"/admin/posts/{post_id}/unpublish",
+            headers=admin_headers,
+        )
+        unpublish_response.raise_for_status()
+        unpublish_body = unpublish_response.json()
+        assert unpublish_body["is_public"] is False
+        assert unpublish_body["logs"][0]["event"] == "post_unpublished_publicly"
+
+        public_after_unpublish_response = client.get("/api/posts/public")
+        public_after_unpublish_response.raise_for_status()
+        public_after_unpublish_ids = {
+            uuid.UUID(post["id"])
+            for post in public_after_unpublish_response.json()
+        }
+        assert post_id not in public_after_unpublish_ids
 
         with SessionLocal() as db:
             service = PublicationStatusService()
@@ -190,6 +234,7 @@ def main() -> int:
     with SessionLocal() as db:
         post = db.get(Post, post_id)
         assert post is not None
+        assert post.is_public is False
         media = db.scalar(select(Media).where(Media.post_id == post_id))
         assert media is not None
         assert media.type == MediaType.photo
@@ -203,6 +248,8 @@ def main() -> int:
         ).all()
         assert len(jobs) == 4
         assert len(logs) >= 2
+        assert any(log.event == "post_published_publicly" for log in logs)
+        assert any(log.event == "post_unpublished_publicly" for log in logs)
         jobs_by_platform = {job.platform: job for job in jobs}
         assert jobs_by_platform[PublicationPlatform.website].status == (
             PlatformStatus.Waiting

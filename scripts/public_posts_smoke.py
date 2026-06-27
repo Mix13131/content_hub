@@ -44,6 +44,12 @@ def main() -> int:
         )
         print(f"Current driver: {url.drivername}", file=sys.stderr)
         return 2
+    if not settings.admin_api_token:
+        print(
+            "Refusing to run: CONTENT_HUB_ADMIN_API_TOKEN must be set.",
+            file=sys.stderr,
+        )
+        return 2
 
     payloads = [
         build_payload("telegram_text_channel_post.json", offset=1),
@@ -53,6 +59,7 @@ def main() -> int:
     headers = {}
     if settings.telegram_webhook_secret:
         headers["X-Telegram-Bot-Api-Secret-Token"] = settings.telegram_webhook_secret
+    admin_headers = {"X-Content-Hub-Admin-Token": settings.admin_api_token}
 
     post_ids: dict[PostType, uuid.UUID] = {}
     with TestClient(app) as client:
@@ -70,19 +77,36 @@ def main() -> int:
             post_ids[post_type] = post_id
 
         with SessionLocal() as db:
-            error_post = db.get(Post, post_ids[PostType.text])
-            assert error_post is not None
-            error_post.status = PostStatus.error
-            db.commit()
+            for post_id in post_ids.values():
+                post = db.get(Post, post_id)
+                assert post is not None
+                assert post.is_public is False
 
         list_response = client.get("/api/posts/public")
         list_response.raise_for_status()
         public_posts = list_response.json()
         public_ids = {uuid.UUID(post["id"]) for post in public_posts}
         assert post_ids[PostType.text] not in public_ids
-        assert post_ids[PostType.photo] in public_ids
-        assert post_ids[PostType.video] in public_ids
+        assert post_ids[PostType.photo] not in public_ids
+        assert post_ids[PostType.video] not in public_ids
         assert_response_is_public(public_posts)
+
+        publish_response = client.post(
+            f"/admin/posts/{post_ids[PostType.photo]}/publish",
+            headers=admin_headers,
+        )
+        publish_response.raise_for_status()
+        assert publish_response.json()["is_public"] is True
+
+        public_after_publish_response = client.get("/api/posts/public")
+        public_after_publish_response.raise_for_status()
+        public_after_publish = public_after_publish_response.json()
+        public_after_publish_ids = {
+            uuid.UUID(post["id"])
+            for post in public_after_publish
+        }
+        assert post_ids[PostType.photo] in public_after_publish_ids
+        assert_response_is_public(public_after_publish)
 
         photo_detail_response = client.get(
             f"/api/posts/public/{post_ids[PostType.photo]}"
@@ -93,15 +117,50 @@ def main() -> int:
         assert photo_detail["media"][0]["file_url"] is None
         assert_response_is_public(photo_detail)
 
+        unpublish_response = client.post(
+            f"/admin/posts/{post_ids[PostType.photo]}/unpublish",
+            headers=admin_headers,
+        )
+        unpublish_response.raise_for_status()
+        assert unpublish_response.json()["is_public"] is False
+
+        public_after_unpublish_response = client.get("/api/posts/public")
+        public_after_unpublish_response.raise_for_status()
+        public_after_unpublish_ids = {
+            uuid.UUID(post["id"])
+            for post in public_after_unpublish_response.json()
+        }
+        assert post_ids[PostType.photo] not in public_after_unpublish_ids
+
+        publish_error_response = client.post(
+            f"/admin/posts/{post_ids[PostType.video]}/publish",
+            headers=admin_headers,
+        )
+        publish_error_response.raise_for_status()
+        with SessionLocal() as db:
+            error_post = db.get(Post, post_ids[PostType.video])
+            assert error_post is not None
+            error_post.status = PostStatus.error
+            assert error_post.is_public is True
+            db.commit()
+
+        public_after_error_response = client.get("/api/posts/public")
+        public_after_error_response.raise_for_status()
+        public_after_error_ids = {
+            uuid.UUID(post["id"])
+            for post in public_after_error_response.json()
+        }
+        assert post_ids[PostType.video] not in public_after_error_ids
+
         error_detail_response = client.get(
-            f"/api/posts/public/{post_ids[PostType.text]}"
+            f"/api/posts/public/{post_ids[PostType.video]}"
         )
         assert error_detail_response.status_code == 404
 
     print("Public posts PostgreSQL smoke passed.")
-    print(f"text error post: {post_ids[PostType.text]}")
-    print(f"photo public post: {post_ids[PostType.photo]}")
-    print(f"video public post: {post_ids[PostType.video]}")
+    print(f"text private post: {post_ids[PostType.text]}")
+    print(f"photo unpublished post: {post_ids[PostType.photo]}")
+    print(f"video public error post: {post_ids[PostType.video]}")
     return 0
 
 

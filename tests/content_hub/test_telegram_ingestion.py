@@ -122,6 +122,7 @@ def test_post_is_created_with_expected_fields(
     assert post.post_type == PostType.text
     assert post.photo_count == 0
     assert post.video_count == 0
+    assert post.is_public is False
     assert post.source == ContentSource.telegram_channel
     assert post.status == PostStatus.queued
     assert post.website_status == PlatformStatus.Waiting

@@ -120,6 +120,7 @@ def verify_post(db: Session, payload: dict[str, Any]) -> Post:
     assert post.telegram_message_ids == [message_id]
     assert post.text == (message.get("text") or message.get("caption") or "")
     assert post.status == "queued"
+    assert post.is_public is False
     assert post.website_status == "Waiting"
     assert post.instagram_status == "Waiting"
     assert post.facebook_status == "Waiting"
@@ -226,6 +227,7 @@ def verify_postgres_column_types(db: Session) -> None:
                 'created_at',
                 'updated_at',
                 'status',
+                'is_public',
                 'website_status',
                 'instagram_status',
                 'facebook_status',
@@ -252,6 +254,8 @@ def verify_postgres_column_types(db: Session) -> None:
     assert columns[("posts", "created_at")]["udt_name"] == "timestamptz"
     assert columns[("posts", "updated_at")]["udt_name"] == "timestamptz"
     assert columns[("posts", "status")]["data_type"] == "character varying"
+    assert columns[("posts", "is_public")]["data_type"] == "boolean"
+    assert columns[("posts", "is_public")]["is_nullable"] == "NO"
     assert columns[("posts", "website_status")]["data_type"] == "character varying"
     assert columns[("media", "file_url")]["is_nullable"] == "YES"
     assert columns[("media", "storage_key")]["is_nullable"] == "YES"

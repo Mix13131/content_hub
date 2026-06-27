@@ -59,6 +59,12 @@ def create_post_from_fixture(db_session: Session, fixture_name: str) -> Post:
     return post
 
 
+def make_public(post: Post, db_session: Session) -> Post:
+    post.is_public = True
+    db_session.flush()
+    return post
+
+
 def test_public_posts_are_available_without_admin_token(
     public_client_with_admin_token: TestClient,
     db_session: Session,
@@ -68,7 +74,19 @@ def test_public_posts_are_available_without_admin_token(
     response = public_client_with_admin_token.get("/api/posts/public")
 
     assert response.status_code == 200
-    assert len(response.json()) == 1
+    assert response.json() == []
+
+
+def test_public_posts_do_not_show_non_public_posts(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = client.get("/api/posts/public")
+
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 def test_public_posts_return_only_non_error_posts(
@@ -77,6 +95,8 @@ def test_public_posts_return_only_non_error_posts(
 ) -> None:
     visible_post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
     error_post = create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    make_public(visible_post, db_session)
+    make_public(error_post, db_session)
     error_post.status = PostStatus.error
     db_session.flush()
 
@@ -91,7 +111,8 @@ def test_public_posts_do_not_return_telegram_file_id(
     client: TestClient,
     db_session: Session,
 ) -> None:
-    create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    post = create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    make_public(post, db_session)
 
     body = client.get("/api/posts/public").json()
 
@@ -103,7 +124,8 @@ def test_public_posts_do_not_return_telegram_file_unique_id(
     client: TestClient,
     db_session: Session,
 ) -> None:
-    create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    post = create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    make_public(post, db_session)
 
     body = client.get("/api/posts/public").json()
 
@@ -115,7 +137,8 @@ def test_public_posts_do_not_return_storage_key(
     client: TestClient,
     db_session: Session,
 ) -> None:
-    create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    post = create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    make_public(post, db_session)
 
     body = client.get("/api/posts/public").json()
 
@@ -127,12 +150,14 @@ def test_get_public_post_detail_returns_detail(
     db_session: Session,
 ) -> None:
     post = create_post_from_fixture(db_session, "telegram_video_channel_post.json")
+    make_public(post, db_session)
 
     response = client.get(f"/api/posts/public/{post.id}")
 
     assert response.status_code == 200
     body = response.json()
     assert body["id"] == str(post.id)
+    assert body["is_public"] is True
     assert body["text"] == "Короткое видео про интерьер"
     assert body["post_type"] == PostType.video.value
     assert body["video_count"] == 1
@@ -158,6 +183,7 @@ def test_get_public_post_detail_for_error_post_returns_404(
     db_session: Session,
 ) -> None:
     post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    make_public(post, db_session)
     post.status = PostStatus.error
     db_session.flush()
 
@@ -170,8 +196,10 @@ def test_public_posts_filter_by_post_type(
     client: TestClient,
     db_session: Session,
 ) -> None:
-    create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    text_post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
     photo_post = create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    make_public(text_post, db_session)
+    make_public(photo_post, db_session)
 
     response = client.get(
         "/api/posts/public",
@@ -181,6 +209,7 @@ def test_public_posts_filter_by_post_type(
     assert response.status_code == 200
     body = response.json()
     assert [post["id"] for post in body] == [str(photo_post.id)]
+    assert body[0]["is_public"] is True
     assert body[0]["media_count"] == 1
     assert body[0]["has_photo"] is True
     assert body[0]["has_video"] is False
@@ -190,9 +219,12 @@ def test_public_posts_limit_works_and_is_capped_at_100(
     client: TestClient,
     db_session: Session,
 ) -> None:
-    create_post_from_fixture(db_session, "telegram_text_channel_post.json")
-    create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
-    create_post_from_fixture(db_session, "telegram_video_channel_post.json")
+    text_post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    photo_post = create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    video_post = create_post_from_fixture(db_session, "telegram_video_channel_post.json")
+    make_public(text_post, db_session)
+    make_public(photo_post, db_session)
+    make_public(video_post, db_session)
 
     limited_response = client.get("/api/posts/public", params={"limit": 2})
     too_large_response = client.get("/api/posts/public", params={"limit": 101})
@@ -209,6 +241,9 @@ def test_public_posts_are_sorted_by_telegram_posted_at_desc(
     text_post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
     photo_post = create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
     video_post = create_post_from_fixture(db_session, "telegram_video_channel_post.json")
+    make_public(text_post, db_session)
+    make_public(photo_post, db_session)
+    make_public(video_post, db_session)
 
     response = client.get("/api/posts/public")
 

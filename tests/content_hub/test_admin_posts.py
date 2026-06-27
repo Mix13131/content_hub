@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from content_hub.app import create_app
 from content_hub.db import get_db
 from content_hub.enums import PlatformStatus, PostStatus, PostType, PublicationPlatform
-from content_hub.models import Media, Post, PublicationJob
+from content_hub.models import Media, Post, PublicationJob, PublicationLog
 from content_hub.services.publication_status import PublicationStatusService
 from content_hub.services.telegram_ingestion import TelegramIngestionService
 from content_hub.settings import Settings, get_settings
@@ -126,6 +126,7 @@ def test_get_admin_posts_returns_summaries_and_filters(
     assert body[0]["id"] == str(text_post.id)
     assert body[0]["telegram_post_id"] == 42
     assert body[0]["post_type"] == PostType.text.value
+    assert body[0]["is_public"] is False
     assert body[0]["status"] == PostStatus.queued.value
     assert body[0]["website_status"] == PlatformStatus.Publishing.value
     assert body[0]["text_preview"] == "Новый пост о матрасах и уютной спальне"
@@ -145,6 +146,7 @@ def test_get_admin_post_detail_returns_post_media_jobs_and_logs(
     body = response.json()
     assert body["id"] == str(post.id)
     assert body["text"] == "Фото новой спальни с матрасом"
+    assert body["is_public"] is False
     assert body["telegram_message_ids"] == [43]
     assert body["media"][0]["id"] == str(media.id)
     assert body["media"][0]["telegram_file_id"] == "photo-large-file-id"
@@ -167,6 +169,162 @@ def test_unknown_admin_post_returns_404(admin_client: TestClient) -> None:
     )
 
     assert response.status_code == 404
+
+
+def test_admin_posts_filter_by_public_visibility(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    public_post = create_post_from_fixture(
+        db_session,
+        "telegram_text_channel_post.json",
+    )
+    private_post = create_post_from_fixture(
+        db_session,
+        "telegram_photo_channel_post.json",
+    )
+    public_post.is_public = True
+    db_session.flush()
+
+    public_response = admin_client.get(
+        "/admin/posts",
+        params={"is_public": "true"},
+        headers=admin_headers(),
+    )
+    private_response = admin_client.get(
+        "/admin/posts",
+        params={"is_public": "false"},
+        headers=admin_headers(),
+    )
+
+    assert public_response.status_code == 200
+    assert private_response.status_code == 200
+    assert [post["id"] for post in public_response.json()] == [str(public_post.id)]
+    assert [post["id"] for post in private_response.json()] == [str(private_post.id)]
+
+
+def test_publish_post_sets_public_flag_and_creates_log(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/publish",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_public"] is True
+    assert post.is_public is True
+    log = db_session.scalar(
+        select(PublicationLog).where(
+            PublicationLog.post_id == post.id,
+            PublicationLog.event == "post_published_publicly",
+        )
+    )
+    assert log is not None
+    assert log.service == "admin"
+    assert log.level == "info"
+
+
+def test_published_post_appears_in_public_api(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    publish_response = admin_client.post(
+        f"/admin/posts/{post.id}/publish",
+        headers=admin_headers(),
+    )
+    public_response = admin_client.get("/api/posts/public")
+
+    assert publish_response.status_code == 200
+    assert public_response.status_code == 200
+    assert [item["id"] for item in public_response.json()] == [str(post.id)]
+
+
+def test_unpublish_post_clears_public_flag_and_creates_log(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    post.is_public = True
+    db_session.flush()
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/unpublish",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_public"] is False
+    assert post.is_public is False
+    log = db_session.scalar(
+        select(PublicationLog).where(
+            PublicationLog.post_id == post.id,
+            PublicationLog.event == "post_unpublished_publicly",
+        )
+    )
+    assert log is not None
+    assert log.service == "admin"
+    assert log.level == "info"
+
+
+def test_unpublished_post_disappears_from_public_api(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    post.is_public = True
+    db_session.flush()
+
+    before_response = admin_client.get("/api/posts/public")
+    unpublish_response = admin_client.post(
+        f"/admin/posts/{post.id}/unpublish",
+        headers=admin_headers(),
+    )
+    after_response = admin_client.get("/api/posts/public")
+
+    assert before_response.status_code == 200
+    assert [item["id"] for item in before_response.json()] == [str(post.id)]
+    assert unpublish_response.status_code == 200
+    assert after_response.status_code == 200
+    assert after_response.json() == []
+
+
+def test_publish_and_unpublish_require_token(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    publish_response = admin_client.post(f"/admin/posts/{post.id}/publish")
+    unpublish_response = admin_client.post(f"/admin/posts/{post.id}/unpublish")
+
+    assert publish_response.status_code == 403
+    assert unpublish_response.status_code == 403
+
+
+def test_publish_and_unpublish_unknown_post_return_404(
+    admin_client: TestClient,
+) -> None:
+    post_id = uuid.uuid4()
+
+    publish_response = admin_client.post(
+        f"/admin/posts/{post_id}/publish",
+        headers=admin_headers(),
+    )
+    unpublish_response = admin_client.post(
+        f"/admin/posts/{post_id}/unpublish",
+        headers=admin_headers(),
+    )
+
+    assert publish_response.status_code == 404
+    assert unpublish_response.status_code == 404
 
 
 def test_retry_post_platform_requires_token(

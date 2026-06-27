@@ -114,6 +114,7 @@ class TelegramIngestionService:
             post_type=self._detect_post_type(photo_count, video_count),
             photo_count=photo_count,
             video_count=video_count,
+            is_public=False,
             source=ContentSource.telegram_channel,
             status=PostStatus.saved,
             website_status=PlatformStatus.Waiting,
