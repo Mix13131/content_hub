@@ -114,7 +114,7 @@ def build_payload() -> dict[str, Any]:
     )
     payload = copy.deepcopy(payload)
     now = datetime.now(timezone.utc)
-    unique_id = int(time.time() * 1000)
+    unique_id = int(time.time_ns() // 1000)
     payload["update_id"] = unique_id
     message = payload["channel_post"]
     message["message_id"] = unique_id

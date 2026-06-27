@@ -459,8 +459,8 @@ MVP endpoints:
 | `/admin/jobs/{job_id}/success` | POST | временный API отметить успех job |
 | `/admin/jobs/{job_id}/error` | POST | временный API отметить ошибку job |
 | `/admin/jobs/{job_id}/retry` | POST | временный API ручной retry job |
-| `/admin/posts` | GET | список публикаций |
-| `/admin/posts/{post_id}` | GET | карточка публикации |
+| `/admin/posts` | GET | read-only список публикаций с фильтрами |
+| `/admin/posts/{post_id}` | GET | read-only карточка публикации с Media, Jobs и Logs |
 | `/admin/posts/{post_id}/retry/{platform}` | POST | повтор публикации на платформу |
 | `/admin/posts/{post_id}/retry-failed` | POST | повтор всех неуспешных платформ |
 | `/news` | GET | публичный список новостей |

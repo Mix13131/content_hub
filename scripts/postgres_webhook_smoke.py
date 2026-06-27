@@ -91,7 +91,7 @@ def build_payload(fixture_name: str, offset: int) -> dict[str, Any]:
     payload = json.loads((FIXTURES_DIR / fixture_name).read_text(encoding="utf-8"))
     payload = copy.deepcopy(payload)
     now = datetime.now(timezone.utc)
-    unique_id = int(time.time() * 1000) + offset
+    unique_id = int(time.time_ns() // 1000) + offset
 
     payload["update_id"] = unique_id
     message = payload["channel_post"]

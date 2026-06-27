@@ -15,6 +15,7 @@ Current implementation covers metadata-only core ingestion:
 - PublicationJob creation for website, Instagram, VK, and Facebook via Instagram sync;
 - DB-only PublicationJob status and retry lifecycle service;
 - minimal token-protected admin API endpoints for PublicationJob lifecycle checks;
+- read-only admin API endpoints for Post, Media, PublicationJob, and PublicationLog inspection;
 - idempotency by `telegram_chat_id + telegram_post_id`;
 - tests for health, ingestion, idempotency, media metadata, PublicationJob rows, status lifecycle, and saved Post fields.
 

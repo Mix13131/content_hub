@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from secrets import compare_digest
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from content_hub.admin.auth import verify_admin_token
 from content_hub.db import get_db
 from content_hub.enums import PlatformStatus, PublicationPlatform
 from content_hub.models import PublicationJob, PublicationLog
@@ -22,27 +22,12 @@ from content_hub.services.publication_status import (
     PublicationStatusError,
     PublicationStatusService,
 )
-from content_hub.settings import Settings, get_settings
-
-
-def _verify_admin_token(
-    settings: Annotated[Settings, Depends(get_settings)],
-    admin_token: Annotated[
-        str | None,
-        Header(alias="X-Content-Hub-Admin-Token"),
-    ] = None,
-) -> None:
-    if not settings.admin_api_token:
-        return
-    if admin_token and compare_digest(settings.admin_api_token, admin_token):
-        return
-    raise HTTPException(status_code=403, detail="Invalid admin token")
 
 
 router = APIRouter(
     prefix="/admin/jobs",
     tags=["admin-jobs"],
-    dependencies=[Depends(_verify_admin_token)],
+    dependencies=[Depends(verify_admin_token)],
 )
 
 

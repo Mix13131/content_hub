@@ -44,6 +44,13 @@ def test_admin_jobs_router_does_not_import_publishers() -> None:
     assert "content_hub.publishers" not in source
 
 
+def test_admin_posts_router_does_not_import_publishers() -> None:
+    source = (
+        PROJECT_ROOT / "content_hub" / "admin" / "posts.py"
+    ).read_text(encoding="utf-8")
+    assert "content_hub.publishers" not in source
+
+
 def test_admin_jobs_router_does_not_call_external_apis() -> None:
     source = (
         PROJECT_ROOT / "content_hub" / "admin" / "jobs.py"
@@ -53,3 +60,25 @@ def test_admin_jobs_router_does_not_call_external_apis() -> None:
     assert "urllib" not in source
     assert "boto3" not in source
     assert "getFile" not in source
+
+
+def test_admin_posts_router_does_not_call_external_apis() -> None:
+    source = (
+        PROJECT_ROOT / "content_hub" / "admin" / "posts.py"
+    ).read_text(encoding="utf-8")
+    assert "httpx" not in source
+    assert "requests" not in source
+    assert "urllib" not in source
+    assert "boto3" not in source
+    assert "getFile" not in source
+
+
+def test_admin_auth_is_shared_between_admin_routers() -> None:
+    jobs_source = (
+        PROJECT_ROOT / "content_hub" / "admin" / "jobs.py"
+    ).read_text(encoding="utf-8")
+    posts_source = (
+        PROJECT_ROOT / "content_hub" / "admin" / "posts.py"
+    ).read_text(encoding="utf-8")
+    assert "from content_hub.admin.auth import verify_admin_token" in jobs_source
+    assert "from content_hub.admin.auth import verify_admin_token" in posts_source

@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from content_hub.admin.jobs import router as admin_jobs_router
+from content_hub.admin.posts import router as admin_posts_router
 from content_hub.db import get_db
 from content_hub.services.telegram_ingestion import TelegramIngestionService
 from content_hub.settings import Settings, get_settings
@@ -15,6 +16,7 @@ from content_hub.settings import Settings, get_settings
 def create_app() -> FastAPI:
     app = FastAPI(title="Content Hub")
     app.include_router(admin_jobs_router)
+    app.include_router(admin_posts_router)
     ingestion_service = TelegramIngestionService()
 
     @app.get("/healthz")
