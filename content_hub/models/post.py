@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Index,
     Integer,
     String,
     Text,
@@ -38,6 +39,7 @@ class Post(Base):
             "telegram_media_group_id",
             name="uq_posts_telegram_media_group",
         ),
+        Index("ix_posts_slug_unique", "slug", unique=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -48,6 +50,10 @@ class Post(Base):
     telegram_url: Mapped[str | None] = mapped_column(Text)
     text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     author: Mapped[str | None] = mapped_column(String(255))
+    slug: Mapped[str | None] = mapped_column(String(255))
+    title: Mapped[str | None] = mapped_column(String(255))
+    meta_description: Mapped[str | None] = mapped_column(String(300))
+    image_alt_text: Mapped[str | None] = mapped_column(String(255))
     telegram_posted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

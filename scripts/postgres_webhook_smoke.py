@@ -121,6 +121,13 @@ def verify_post(db: Session, payload: dict[str, Any]) -> Post:
     assert post.text == (message.get("text") or message.get("caption") or "")
     assert post.status == "queued"
     assert post.is_public is False
+    assert post.slug == f"telegram-c{abs(chat_id)}-m{message_id}"
+    assert post.title == post.text[:80]
+    assert post.meta_description == post.text[:160]
+    if post.post_type in {PostType.photo, PostType.video}:
+        assert post.image_alt_text == post.title
+    else:
+        assert post.image_alt_text is None
     assert post.website_status == "Waiting"
     assert post.instagram_status == "Waiting"
     assert post.facebook_status == "Waiting"
@@ -228,6 +235,10 @@ def verify_postgres_column_types(db: Session) -> None:
                 'updated_at',
                 'status',
                 'is_public',
+                'slug',
+                'title',
+                'meta_description',
+                'image_alt_text',
                 'website_status',
                 'instagram_status',
                 'facebook_status',
@@ -256,6 +267,10 @@ def verify_postgres_column_types(db: Session) -> None:
     assert columns[("posts", "status")]["data_type"] == "character varying"
     assert columns[("posts", "is_public")]["data_type"] == "boolean"
     assert columns[("posts", "is_public")]["is_nullable"] == "NO"
+    assert columns[("posts", "slug")]["is_nullable"] == "YES"
+    assert columns[("posts", "title")]["is_nullable"] == "YES"
+    assert columns[("posts", "meta_description")]["is_nullable"] == "YES"
+    assert columns[("posts", "image_alt_text")]["is_nullable"] == "YES"
     assert columns[("posts", "website_status")]["data_type"] == "character varying"
     assert columns[("media", "file_url")]["is_nullable"] == "YES"
     assert columns[("media", "storage_key")]["is_nullable"] == "YES"
@@ -277,6 +292,21 @@ def verify_postgres_constraints(db: Session) -> None:
         )
     )
     assert constraint_exists is True
+    slug_index_exists = db.scalar(
+        text(
+            """
+            select exists (
+                select 1
+                from pg_indexes
+                where schemaname = current_schema()
+                  and tablename = 'posts'
+                  and indexname = 'ix_posts_slug_unique'
+                  and indexdef ilike '%unique%'
+            )
+            """
+        )
+    )
+    assert slug_index_exists is True
 
 
 if __name__ == "__main__":

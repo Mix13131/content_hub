@@ -32,6 +32,10 @@ class PublicPostSummaryResponse(BaseModel):
     telegram_url: str | None
     text_preview: str
     author: str | None
+    slug: str | None
+    title: str | None
+    meta_description: str | None
+    image_alt_text: str | None
     telegram_posted_at: datetime
     post_type: PostType
     photo_count: int
@@ -49,6 +53,10 @@ class PublicPostDetailResponse(BaseModel):
     telegram_url: str | None
     text: str
     author: str | None
+    slug: str | None
+    title: str | None
+    meta_description: str | None
+    image_alt_text: str | None
     telegram_posted_at: datetime
     post_type: PostType
     photo_count: int

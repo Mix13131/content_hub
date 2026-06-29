@@ -107,6 +107,23 @@ def test_public_posts_return_only_non_error_posts(
     assert [post["id"] for post in body] == [str(visible_post.id)]
 
 
+def test_public_posts_list_returns_seo_fields(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    make_public(post, db_session)
+
+    response = client.get("/api/posts/public")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["slug"] == "telegram-c1001234567890-m42"
+    assert body[0]["title"] == "Новый пост о матрасах и уютной спальне"
+    assert body[0]["meta_description"] == "Новый пост о матрасах и уютной спальне"
+    assert body[0]["image_alt_text"] is None
+
+
 def test_public_posts_do_not_return_telegram_file_id(
     client: TestClient,
     db_session: Session,
@@ -158,6 +175,10 @@ def test_get_public_post_detail_returns_detail(
     body = response.json()
     assert body["id"] == str(post.id)
     assert body["is_public"] is True
+    assert body["slug"] == "telegram-c1001234567890-m44"
+    assert body["title"] == "Короткое видео про интерьер"
+    assert body["meta_description"] == "Короткое видео про интерьер"
+    assert body["image_alt_text"] == "Короткое видео про интерьер"
     assert body["text"] == "Короткое видео про интерьер"
     assert body["post_type"] == PostType.video.value
     assert body["video_count"] == 1
@@ -178,6 +199,34 @@ def test_get_public_post_detail_returns_detail(
     assert_key_absent(body, "storage_key")
 
 
+def test_get_public_post_detail_by_slug_returns_detail(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+    make_public(post, db_session)
+
+    response = client.get(f"/api/posts/public/slug/{post.slug}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(post.id)
+    assert body["slug"] == "telegram-c1001234567890-m43"
+    assert body["title"] == "Фото новой спальни с матрасом"
+    assert body["image_alt_text"] == "Фото новой спальни с матрасом"
+
+
+def test_get_public_post_detail_by_slug_for_private_post_returns_404(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = client.get(f"/api/posts/public/slug/{post.slug}")
+
+    assert response.status_code == 404
+
+
 def test_get_public_post_detail_for_error_post_returns_404(
     client: TestClient,
     db_session: Session,
@@ -188,6 +237,20 @@ def test_get_public_post_detail_for_error_post_returns_404(
     db_session.flush()
 
     response = client.get(f"/api/posts/public/{post.id}")
+
+    assert response.status_code == 404
+
+
+def test_get_public_post_detail_by_slug_for_error_post_returns_404(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    make_public(post, db_session)
+    post.status = PostStatus.error
+    db_session.flush()
+
+    response = client.get(f"/api/posts/public/slug/{post.slug}")
 
     assert response.status_code == 404
 

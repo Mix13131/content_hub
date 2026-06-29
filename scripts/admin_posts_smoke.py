@@ -63,6 +63,11 @@ def main() -> int:
         webhook_body = webhook_response.json()
         assert webhook_body["created"] is True, webhook_body
         post_id = uuid.UUID(webhook_body["post_id"])
+        expected_slug = (
+            f"telegram-c{abs(int(payload['channel_post']['chat']['id']))}"
+            f"-m{payload['channel_post']['message_id']}"
+        )
+        expected_title = payload["channel_post"]["caption"]
 
         forbidden_response = client.get(
             "/admin/posts",
@@ -88,6 +93,10 @@ def main() -> int:
         assert posts[0]["photo_count"] == 1
         assert posts[0]["video_count"] == 0
         assert posts[0]["is_public"] is False
+        assert posts[0]["slug"] == expected_slug
+        assert posts[0]["title"] == expected_title[:80]
+        assert posts[0]["meta_description"] == expected_title[:160]
+        assert posts[0]["image_alt_text"] == expected_title[:80]
         assert "PostgreSQL admin posts smoke" in posts[0]["text_preview"]
 
         detail_response = client.get(
@@ -99,12 +108,34 @@ def main() -> int:
         assert detail_body["id"] == str(post_id)
         assert detail_body["post_type"] == PostType.photo.value
         assert detail_body["is_public"] is False
+        assert detail_body["slug"] == expected_slug
+        assert detail_body["title"] == expected_title[:80]
+        assert detail_body["meta_description"] == expected_title[:160]
+        assert detail_body["image_alt_text"] == expected_title[:80]
         assert len(detail_body["media"]) == 1
         assert detail_body["media"][0]["type"] == MediaType.photo.value
         assert detail_body["media"][0]["file_url"] is None
         assert detail_body["media"][0]["storage_key"] is None
         assert len(detail_body["jobs"]) == 4
         assert len(detail_body["logs"]) >= 2
+
+        seo_response = client.patch(
+            f"/admin/posts/{post_id}/seo",
+            headers=admin_headers,
+            json={
+                "slug": f"Admin Smoke SEO {post_id}",
+                "title": "Admin smoke SEO title",
+                "meta_description": "Admin smoke SEO description",
+                "image_alt_text": "Admin smoke SEO alt",
+            },
+        )
+        seo_response.raise_for_status()
+        seo_body = seo_response.json()
+        assert seo_body["slug"] == f"admin-smoke-seo-{post_id}"
+        assert seo_body["title"] == "Admin smoke SEO title"
+        assert seo_body["meta_description"] == "Admin smoke SEO description"
+        assert seo_body["image_alt_text"] == "Admin smoke SEO alt"
+        assert seo_body["logs"][0]["event"] == "post_seo_updated"
 
         public_before_response = client.get("/api/posts/public")
         public_before_response.raise_for_status()
@@ -235,6 +266,10 @@ def main() -> int:
         post = db.get(Post, post_id)
         assert post is not None
         assert post.is_public is False
+        assert post.slug == f"admin-smoke-seo-{post_id}"
+        assert post.title == "Admin smoke SEO title"
+        assert post.meta_description == "Admin smoke SEO description"
+        assert post.image_alt_text == "Admin smoke SEO alt"
         media = db.scalar(select(Media).where(Media.post_id == post_id))
         assert media is not None
         assert media.type == MediaType.photo
@@ -250,6 +285,7 @@ def main() -> int:
         assert len(logs) >= 2
         assert any(log.event == "post_published_publicly" for log in logs)
         assert any(log.event == "post_unpublished_publicly" for log in logs)
+        assert any(log.event == "post_seo_updated" for log in logs)
         jobs_by_platform = {job.platform: job for job in jobs}
         assert jobs_by_platform[PublicationPlatform.website].status == (
             PlatformStatus.Waiting

@@ -23,8 +23,10 @@ from content_hub.schemas.admin_posts import (
     AdminMediaResponse,
     AdminPostDetailResponse,
     AdminPostRetryResponse,
+    AdminPostSeoUpdateRequest,
     AdminPostSummaryResponse,
 )
+from content_hub.services.seo import normalize_slug
 from content_hub.services.publication_status import (
     PublicationStatusError,
     PublicationStatusService,
@@ -109,6 +111,36 @@ def unpublish_post(
         event="post_unpublished_publicly",
         message="Post hidden from public API",
     )
+
+
+@router.patch("/{post_id}/seo", response_model=AdminPostDetailResponse)
+def update_post_seo(
+    post_id: uuid.UUID,
+    payload: AdminPostSeoUpdateRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminPostDetailResponse:
+    post = _get_post_or_404(post_id, db)
+
+    if "slug" in payload.model_fields_set:
+        post.slug = _normalize_requested_slug(payload.slug, post.id, db)
+    if "title" in payload.model_fields_set:
+        post.title = payload.title
+    if "meta_description" in payload.model_fields_set:
+        post.meta_description = payload.meta_description
+    if "image_alt_text" in payload.model_fields_set:
+        post.image_alt_text = payload.image_alt_text
+
+    db.add(
+        PublicationLog(
+            post_id=post.id,
+            service="admin",
+            level=PublicationLogLevel.info,
+            event="post_seo_updated",
+            message="Post SEO fields updated",
+        )
+    )
+    db.commit()
+    return _build_post_detail_response(post_id, db)
 
 
 @router.post("/{post_id}/retry/{platform}", response_model=AdminPostRetryResponse)
@@ -205,6 +237,29 @@ def _set_post_public_visibility(
     return _build_post_detail_response(post_id, db)
 
 
+def _normalize_requested_slug(
+    slug: str | None,
+    post_id: uuid.UUID,
+    db: Session,
+) -> str | None:
+    if slug is None:
+        return None
+
+    normalized_slug = normalize_slug(slug)
+    if not normalized_slug:
+        raise HTTPException(status_code=422, detail="Slug cannot be empty")
+
+    existing_post = db.scalar(
+        select(Post).where(
+            Post.slug == normalized_slug,
+            Post.id != post_id,
+        )
+    )
+    if existing_post is not None:
+        raise HTTPException(status_code=409, detail="Slug is already used")
+    return normalized_slug
+
+
 def _build_post_detail_response(
     post_id: uuid.UUID,
     db: Session,
@@ -252,6 +307,10 @@ def _build_post_summary(post: Post) -> AdminPostSummaryResponse:
         telegram_url=post.telegram_url,
         text_preview=_preview(post.text),
         author=post.author,
+        slug=post.slug,
+        title=post.title,
+        meta_description=post.meta_description,
+        image_alt_text=post.image_alt_text,
         telegram_posted_at=post.telegram_posted_at,
         post_type=post.post_type,
         photo_count=post.photo_count,

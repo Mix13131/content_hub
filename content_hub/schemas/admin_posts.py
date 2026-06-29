@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from content_hub.enums import (
     ContentSource,
@@ -43,6 +43,10 @@ class AdminPostSummaryResponse(BaseModel):
     telegram_url: str | None
     text_preview: str
     author: str | None
+    slug: str | None
+    title: str | None
+    meta_description: str | None
+    image_alt_text: str | None
     telegram_posted_at: datetime
     post_type: PostType
     photo_count: int
@@ -72,3 +76,10 @@ class AdminPostRetryResponse(BaseModel):
     post: AdminPostDetailResponse
     retried_count: int
     retried_platforms: list[PublicationPlatform]
+
+
+class AdminPostSeoUpdateRequest(BaseModel):
+    slug: str | None = Field(default=None, max_length=255)
+    title: str | None = Field(default=None, max_length=255)
+    meta_description: str | None = Field(default=None, max_length=300)
+    image_alt_text: str | None = Field(default=None, max_length=255)

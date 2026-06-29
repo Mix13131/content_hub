@@ -17,6 +17,7 @@ from content_hub.enums import (
 )
 from content_hub.models import Media, Post, PublicationLog
 from content_hub.services.publication_queue import PublicationQueueService
+from content_hub.services.seo import build_default_seo
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,14 @@ class TelegramIngestionService:
         telegram_chat_id = int(chat["id"])
         photo_count = self._photo_count(message)
         video_count = self._video_count(message)
+        text = self._extract_text(message)
+        post_type = self._detect_post_type(photo_count, video_count)
+        seo = build_default_seo(
+            telegram_chat_id=telegram_chat_id,
+            telegram_post_id=telegram_post_id,
+            text=text,
+            post_type=post_type,
+        )
 
         return Post(
             telegram_chat_id=telegram_chat_id,
@@ -105,13 +114,17 @@ class TelegramIngestionService:
             telegram_media_group_id=message.get("media_group_id"),
             telegram_message_ids=[telegram_post_id],
             telegram_url=self._build_telegram_url(chat, telegram_post_id),
-            text=self._extract_text(message),
+            text=text,
             author=self._extract_author(message),
+            slug=seo.slug,
+            title=seo.title,
+            meta_description=seo.meta_description,
+            image_alt_text=seo.image_alt_text,
             telegram_posted_at=datetime.fromtimestamp(
                 int(message["date"]),
                 tz=timezone.utc,
             ),
-            post_type=self._detect_post_type(photo_count, video_count),
+            post_type=post_type,
             photo_count=photo_count,
             video_count=video_count,
             is_public=False,
