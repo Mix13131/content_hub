@@ -3,6 +3,7 @@ import logging
 import uuid
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -84,9 +85,28 @@ def test_accepts_text_channel_post(client: TestClient, db_session: Session) -> N
     assert_publication_jobs_created(db_session, posts[0])
 
 
+def test_telegram_webhook_stdout_diagnostics_for_channel_post(
+    client: TestClient,
+    capsys,
+) -> None:
+    payload = load_fixture("telegram_text_channel_post.json")
+
+    response = client.post("/webhooks/telegram", json=payload)
+
+    assert response.status_code == 200
+    stdout = capsys.readouterr().out
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RECEIVED" in stdout
+    assert "keys=update_id,channel_post" in stdout
+    assert "update_type=channel_post" in stdout
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RESULT" in stdout
+    assert "ignored=False" in stdout
+    assert "created=True" in stdout
+
+
 def test_message_update_is_ignored_with_supported_reason(
     client: TestClient,
     db_session: Session,
+    capsys,
 ) -> None:
     payload = {
         "update_id": 1001,
@@ -103,11 +123,19 @@ def test_message_update_is_ignored_with_supported_reason(
     assert response.json()["created"] is False
     assert response.json()["reason"] == "unsupported_update_type"
     assert db_session.scalars(select(Post)).all() == []
+    stdout = capsys.readouterr().out
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RECEIVED" in stdout
+    assert "update_type=message" in stdout
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RESULT" in stdout
+    assert "ignored=True" in stdout
+    assert "reason=unsupported_update_type" in stdout
+    assert "This text must not be saved" not in stdout
 
 
 def test_my_chat_member_update_is_ignored_with_supported_reason(
     client: TestClient,
     db_session: Session,
+    capsys,
 ) -> None:
     payload = {
         "update_id": 1002,
@@ -124,6 +152,76 @@ def test_my_chat_member_update_is_ignored_with_supported_reason(
     assert response.json()["created"] is False
     assert response.json()["reason"] == "unsupported_update_type"
     assert db_session.scalars(select(Post)).all() == []
+    stdout = capsys.readouterr().out
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RECEIVED" in stdout
+    assert "update_type=my_chat_member" in stdout
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RESULT" in stdout
+    assert "ignored=True" in stdout
+
+
+def test_safe_telegram_stdout_diagnostics_do_not_expose_payload_data(
+    client: TestClient,
+    capsys,
+) -> None:
+    payload = load_fixture("telegram_photo_channel_post.json")
+
+    response = client.post("/webhooks/telegram", json=payload)
+
+    assert response.status_code == 200
+    stdout = capsys.readouterr().out
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RECEIVED" in stdout
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RESULT" in stdout
+    assert "update_type=channel_post" in stdout
+    assert "Фото новой спальни с матрасом" not in stdout
+    assert "photo-small-file-id" not in stdout
+    assert "photo-large-file-id" not in stdout
+    assert "photo-medium-file-id" not in stdout
+    assert "photo-small-unique-id" not in stdout
+    assert "photo-large-unique-id" not in stdout
+    assert "photo-medium-unique-id" not in stdout
+    assert "caption" not in stdout
+    assert "file_id" not in stdout
+    assert "file_unique_id" not in stdout
+
+
+def test_telegram_webhook_stdout_error_diagnostics_are_safe(
+    client: TestClient,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "update_id": 1003,
+        "channel_post": {
+            "message_id": 8,
+            "chat": {"id": -1001234567890, "type": "channel"},
+            "date": 1_725_194_400,
+            "text": "Sensitive post text",
+        },
+    }
+
+    def broken_ingest_update(
+        self: TelegramIngestionService,
+        update: dict,
+        db: Session,
+    ) -> None:
+        raise RuntimeError("secret-like exception message")
+
+    monkeypatch.setattr(
+        TelegramIngestionService,
+        "ingest_update",
+        broken_ingest_update,
+    )
+
+    with pytest.raises(RuntimeError):
+        client.post("/webhooks/telegram", json=payload)
+
+    stdout = capsys.readouterr().out
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RECEIVED" in stdout
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_ERROR" in stdout
+    assert "update_type=channel_post" in stdout
+    assert "error_type=RuntimeError" in stdout
+    assert "Sensitive post text" not in stdout
+    assert "secret-like exception message" not in stdout
 
 
 def test_safe_telegram_update_logs_do_not_expose_payload_data(
