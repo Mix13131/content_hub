@@ -11,6 +11,11 @@ from content_hub.admin.posts import router as admin_posts_router
 from content_hub.db import get_db
 from content_hub.public.news import router as news_router
 from content_hub.public.posts import router as public_posts_router
+from content_hub.services.telegram_diagnostics import (
+    emit_update_error,
+    emit_update_received,
+    emit_update_result,
+)
 from content_hub.services.telegram_ingestion import TelegramIngestionService
 from content_hub.settings import Settings, get_settings
 
@@ -43,7 +48,19 @@ def create_app() -> FastAPI:
         ):
             raise HTTPException(status_code=403, detail="Invalid Telegram secret")
 
-        result = ingestion_service.ingest_update(payload, db)
+        emit_update_received(payload)
+        try:
+            result = ingestion_service.ingest_update(payload, db)
+        except Exception as exc:
+            emit_update_error(payload, exc)
+            raise
+        emit_update_result(
+            payload,
+            ignored=result.ignored,
+            created=result.created,
+            reason=result.reason,
+            post_id=result.post_id,
+        )
         return {
             "ok": True,
             "ignored": result.ignored,
