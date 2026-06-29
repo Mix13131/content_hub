@@ -1,0 +1,42 @@
+{
+  "update_id": 1000102,
+  "message": {
+    "message_id": 53,
+    "from": {
+      "id": 700001,
+      "is_bot": false,
+      "first_name": "Julia"
+    },
+    "chat": {
+      "id": -1002234567890,
+      "title": "Content Hub Test Chat",
+      "type": "supergroup",
+      "username": "content_hub_chat"
+    },
+    "date": 1717244300,
+    "caption": "Фото из сообщения Content Hub",
+    "photo": [
+      {
+        "file_id": "message-photo-small-file-id",
+        "file_unique_id": "message-photo-small-unique-id",
+        "width": 320,
+        "height": 240,
+        "file_size": 12000
+      },
+      {
+        "file_id": "message-photo-large-file-id",
+        "file_unique_id": "message-photo-large-unique-id",
+        "width": 1280,
+        "height": 960,
+        "file_size": 210000
+      },
+      {
+        "file_id": "message-photo-medium-file-id",
+        "file_unique_id": "message-photo-medium-unique-id",
+        "width": 800,
+        "height": 600,
+        "file_size": 90000
+      }
+    ]
+  }
+}

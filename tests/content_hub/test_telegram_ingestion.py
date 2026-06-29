@@ -103,33 +103,45 @@ def test_telegram_webhook_stdout_diagnostics_for_channel_post(
     assert "created=True" in stdout
 
 
-def test_message_update_is_ignored_with_supported_reason(
+def test_message_text_update_creates_post(
     client: TestClient,
     db_session: Session,
     capsys,
 ) -> None:
-    payload = {
-        "update_id": 1001,
-        "message": {
-            "message_id": 7,
-            "text": "This text must not be saved",
-        },
-    }
+    payload = load_fixture("telegram_text_message.json")
 
     response = client.post("/webhooks/telegram", json=payload)
 
     assert response.status_code == 200
-    assert response.json()["ignored"] is True
-    assert response.json()["created"] is False
-    assert response.json()["reason"] == "unsupported_update_type"
-    assert db_session.scalars(select(Post)).all() == []
+    body = response.json()
+    assert body["ignored"] is False
+    assert body["created"] is True
+    assert body["reason"] is None
+
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.telegram_chat_id == -1002234567890
+    assert post.telegram_post_id == 52
+    assert post.telegram_message_ids == [52]
+    assert post.telegram_url == "https://t.me/content_hub_chat/52"
+    assert post.text == "Тестовое сообщение Content Hub"
+    assert post.author == "Content Hub Test Chat"
+    assert post.source == ContentSource.telegram_chat
+    assert post.post_type == PostType.text
+    assert post.photo_count == 0
+    assert post.video_count == 0
+    assert post.status == PostStatus.queued
+    assert_publication_jobs_created(db_session, post)
+
     stdout = capsys.readouterr().out
     assert "CONTENT_HUB_TELEGRAM_UPDATE_RECEIVED" in stdout
+    assert "keys=update_id,message" in stdout
     assert "update_type=message" in stdout
     assert "CONTENT_HUB_TELEGRAM_UPDATE_RESULT" in stdout
-    assert "ignored=True" in stdout
-    assert "reason=unsupported_update_type" in stdout
-    assert "This text must not be saved" not in stdout
+    assert "ignored=False" in stdout
+    assert "created=True" in stdout
+    assert "reason=None" in stdout
+    assert "Тестовое сообщение Content Hub" not in stdout
 
 
 def test_my_chat_member_update_is_ignored_with_supported_reason(
@@ -163,7 +175,7 @@ def test_safe_telegram_stdout_diagnostics_do_not_expose_payload_data(
     client: TestClient,
     capsys,
 ) -> None:
-    payload = load_fixture("telegram_photo_channel_post.json")
+    payload = load_fixture("telegram_photo_message.json")
 
     response = client.post("/webhooks/telegram", json=payload)
 
@@ -171,14 +183,14 @@ def test_safe_telegram_stdout_diagnostics_do_not_expose_payload_data(
     stdout = capsys.readouterr().out
     assert "CONTENT_HUB_TELEGRAM_UPDATE_RECEIVED" in stdout
     assert "CONTENT_HUB_TELEGRAM_UPDATE_RESULT" in stdout
-    assert "update_type=channel_post" in stdout
-    assert "Фото новой спальни с матрасом" not in stdout
-    assert "photo-small-file-id" not in stdout
-    assert "photo-large-file-id" not in stdout
-    assert "photo-medium-file-id" not in stdout
-    assert "photo-small-unique-id" not in stdout
-    assert "photo-large-unique-id" not in stdout
-    assert "photo-medium-unique-id" not in stdout
+    assert "update_type=message" in stdout
+    assert "Фото из сообщения Content Hub" not in stdout
+    assert "message-photo-small-file-id" not in stdout
+    assert "message-photo-large-file-id" not in stdout
+    assert "message-photo-medium-file-id" not in stdout
+    assert "message-photo-small-unique-id" not in stdout
+    assert "message-photo-large-unique-id" not in stdout
+    assert "message-photo-medium-unique-id" not in stdout
     assert "caption" not in stdout
     assert "file_id" not in stdout
     assert "file_unique_id" not in stdout
@@ -377,6 +389,45 @@ def test_photo_channel_post_creates_post_and_largest_photo_media(
     assert media.size_bytes == 210000
 
 
+def test_photo_message_creates_post_and_largest_photo_media(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_photo_message.json")
+
+    response = client.post("/webhooks/telegram", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["created"] is True
+
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.text == "Фото из сообщения Content Hub"
+    assert post.post_type == PostType.photo
+    assert post.slug == "telegram-c1002234567890-m53"
+    assert post.title == "Фото из сообщения Content Hub"
+    assert post.meta_description == "Фото из сообщения Content Hub"
+    assert post.image_alt_text == "Фото из сообщения Content Hub"
+    assert post.photo_count == 1
+    assert post.video_count == 0
+    assert post.source == ContentSource.telegram_chat
+    assert post.status == PostStatus.queued
+    assert_publication_jobs_created(db_session, post)
+
+    media = db_session.scalar(select(Media))
+    assert media is not None
+    assert media.post_id == post.id
+    assert media.type == MediaType.photo
+    assert media.file_url is None
+    assert media.storage_key is None
+    assert media.telegram_file_id == "message-photo-large-file-id"
+    assert media.telegram_file_unique_id == "message-photo-large-unique-id"
+    assert media.sort_order == 0
+    assert media.width == 1280
+    assert media.height == 960
+    assert media.size_bytes == 210000
+
+
 def test_video_channel_post_creates_post_and_video_media(
     client: TestClient,
     db_session: Session,
@@ -409,6 +460,47 @@ def test_video_channel_post_creates_post_and_video_media(
     assert media.storage_key is None
     assert media.telegram_file_id == "video-file-id"
     assert media.telegram_file_unique_id == "video-unique-id"
+    assert media.sort_order == 0
+    assert media.mime_type == "video/mp4"
+    assert media.size_bytes == 4200000
+    assert media.width == 1080
+    assert media.height == 1920
+    assert media.duration_seconds == 27
+
+
+def test_video_message_creates_post_and_video_media(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_video_message.json")
+
+    response = client.post("/webhooks/telegram", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["created"] is True
+
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.text == "Видео из сообщения Content Hub"
+    assert post.post_type == PostType.video
+    assert post.slug == "telegram-c1002234567890-m54"
+    assert post.title == "Видео из сообщения Content Hub"
+    assert post.meta_description == "Видео из сообщения Content Hub"
+    assert post.image_alt_text == "Видео из сообщения Content Hub"
+    assert post.photo_count == 0
+    assert post.video_count == 1
+    assert post.source == ContentSource.telegram_chat
+    assert post.status == PostStatus.queued
+    assert_publication_jobs_created(db_session, post)
+
+    media = db_session.scalar(select(Media))
+    assert media is not None
+    assert media.post_id == post.id
+    assert media.type == MediaType.video
+    assert media.file_url is None
+    assert media.storage_key is None
+    assert media.telegram_file_id == "message-video-file-id"
+    assert media.telegram_file_unique_id == "message-video-unique-id"
     assert media.sort_order == 0
     assert media.mime_type == "video/mp4"
     assert media.size_bytes == 4200000
@@ -462,6 +554,24 @@ def test_repeated_video_webhook_does_not_create_duplicate_media(
     assert first_response.json()["created"] is True
     assert second_response.json()["created"] is False
     assert second_response.json()["reason"] == "duplicate"
+    assert len(db_session.scalars(select(Post)).all()) == 1
+    assert len(db_session.scalars(select(Media)).all()) == 1
+    assert len(db_session.scalars(select(PublicationJob)).all()) == 4
+
+
+def test_repeated_message_webhook_does_not_create_duplicate(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_photo_message.json")
+
+    first_response = client.post("/webhooks/telegram", json=payload)
+    second_response = client.post("/webhooks/telegram", json=payload)
+
+    assert first_response.json()["created"] is True
+    assert second_response.json()["created"] is False
+    assert second_response.json()["reason"] == "duplicate"
+    assert first_response.json()["post_id"] == second_response.json()["post_id"]
     assert len(db_session.scalars(select(Post)).all()) == 1
     assert len(db_session.scalars(select(Media)).all()) == 1
     assert len(db_session.scalars(select(PublicationJob)).all()) == 4

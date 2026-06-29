@@ -1,0 +1,19 @@
+{
+  "update_id": 1000101,
+  "message": {
+    "message_id": 52,
+    "from": {
+      "id": 700001,
+      "is_bot": false,
+      "first_name": "Julia"
+    },
+    "chat": {
+      "id": -1002234567890,
+      "title": "Content Hub Test Chat",
+      "type": "supergroup",
+      "username": "content_hub_chat"
+    },
+    "date": 1717244200,
+    "text": "Тестовое сообщение Content Hub"
+  }
+}

@@ -29,6 +29,7 @@ class PostType(StrEnum):
 
 class ContentSource(StrEnum):
     telegram_channel = "telegram_channel"
+    telegram_chat = "telegram_chat"
 
 
 class MediaType(StrEnum):
