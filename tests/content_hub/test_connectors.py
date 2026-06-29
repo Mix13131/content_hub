@@ -115,7 +115,7 @@ def test_website_connector_capabilities() -> None:
     assert capabilities.supports_video is True
 
 
-def test_website_connector_publish_returns_dry_run_url(
+def test_website_connector_publish_returns_internal_url(
     db_session: Session,
 ) -> None:
     post, _ = create_post_with_jobs(db_session)
@@ -126,9 +126,9 @@ def test_website_connector_publish_returns_dry_run_url(
     assert result.external_post_id == str(post.id)
     assert result.external_url == f"/news/{post.slug}"
     assert result.raw_response == {
-        "mode": "dry_run",
+        "mode": "internal",
         "connector": "website",
-        "media_count": 0,
+        "visibility": "public",
     }
 
 
@@ -147,10 +147,12 @@ def test_connector_engine_publishes_website_job_successfully(
     assert job.external_post_id == str(post.id)
     assert job.external_url == f"/news/{post.slug}"
     assert job.last_api_response == {
-        "mode": "dry_run",
+        "mode": "internal",
         "connector": "website",
-        "media_count": 0,
+        "visibility": "public",
     }
+    assert post.is_public is True
+    assert post.published_at is not None
     assert post.website_status == PlatformStatus.Success
     assert post.status == PostStatus.partially_published
 

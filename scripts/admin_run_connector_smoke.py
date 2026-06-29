@@ -61,6 +61,13 @@ def main() -> int:
         assert webhook_body["created"] is True, webhook_body
 
         post_id = webhook_body["post_id"]
+        post_detail_before_response = client.get(
+            f"/admin/posts/{post_id}",
+            headers=admin_headers,
+        )
+        post_detail_before_response.raise_for_status()
+        assert post_detail_before_response.json()["is_public"] is False
+
         run_response = client.post(
             f"/admin/posts/{post_id}/run/{PublicationPlatform.website.value}",
             headers=admin_headers,
@@ -68,6 +75,8 @@ def main() -> int:
         run_response.raise_for_status()
         run_body = run_response.json()
         assert run_body["id"] == post_id
+        assert run_body["is_public"] is True
+        assert run_body["published_at"] is not None
         assert run_body["website_status"] == PlatformStatus.Success.value
         website_job = next(
             job
@@ -77,6 +86,24 @@ def main() -> int:
         assert website_job["status"] == PlatformStatus.Success.value
         assert website_job["external_post_id"] == post_id
         assert website_job["external_url"] == f"/news/{run_body['slug']}"
+
+        public_list_response = client.get("/api/posts/public")
+        public_list_response.raise_for_status()
+        assert post_id in {post["id"] for post in public_list_response.json()}
+
+        public_slug_response = client.get(
+            f"/api/posts/public/slug/{run_body['slug']}"
+        )
+        public_slug_response.raise_for_status()
+        assert public_slug_response.json()["id"] == post_id
+
+        news_response = client.get("/news")
+        news_response.raise_for_status()
+        assert run_body["title"] in news_response.text
+
+        news_detail_response = client.get(f"/news/{run_body['slug']}")
+        news_detail_response.raise_for_status()
+        assert run_body["title"] in news_detail_response.text
 
     with SessionLocal() as db:
         post = get_post(db, payload)
@@ -90,6 +117,8 @@ def main() -> int:
         assert website_job.status == PlatformStatus.Success
         assert website_job.external_post_id == str(post.id)
         assert website_job.external_url == f"/news/{post.slug}"
+        assert post.is_public is True
+        assert post.published_at is not None
         assert post.website_status == PlatformStatus.Success
         assert post.status == PostStatus.partially_published
         assert has_log(db, website_job, "job_started")

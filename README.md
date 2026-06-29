@@ -17,7 +17,7 @@ Current implementation covers metadata-only core ingestion:
 - media metadata for Telegram photo/video posts;
 - PublicationJob creation for website, Instagram, VK, and Facebook via Instagram sync;
 - DB-only PublicationJob status and retry lifecycle service;
-- dry-run Connector Engine foundation with a website connector;
+- Connector Engine foundation with an internal website connector;
 - minimal token-protected admin API endpoints for PublicationJob lifecycle checks;
 - token-protected admin endpoints to run a PublicationJob manually through the Connector Engine;
 - read-only admin API endpoints for Post, Media, PublicationJob, and PublicationLog inspection;
@@ -62,12 +62,19 @@ The optional publication status smoke checks DB-only status transitions and manu
 Admin job endpoints are protected by `CONTENT_HUB_ADMIN_API_TOKEN` when it is set. In local development, if the token is empty, the endpoints are open for manual smoke checks.
 
 Manual Connector Engine run endpoints execute existing `PublicationJob` rows without a
-worker, Redis, or external API calls. The current website connector is dry-run only
-and returns an internal `/news/{slug}` URL:
+worker, Redis, or external API calls. The website connector is internal: it publishes
+a post to the Content Hub website by setting `is_public=true`, preserving the job
+result, and returning an internal `/news/{slug}` URL:
 
 ```bash
 curl -s -X POST https://web-production-6c604.up.railway.app/admin/posts/{post_id}/run/website \
   -H "X-Content-Hub-Admin-Token: ${CONTENT_HUB_ADMIN_API_TOKEN}"
+```
+
+After a successful website run, verify the public page:
+
+```bash
+curl -s https://web-production-6c604.up.railway.app/news/{slug}
 ```
 
 Public post endpoints do not require an admin token and return only posts with `is_public=true` and `status!=error`. Responses include `is_public`, return metadata-only media fields, and do not expose Telegram file identifiers or storage keys.

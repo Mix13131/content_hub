@@ -30,5 +30,5 @@ safe raw response, or a controlled error.
 
 The interface allows adding Tilda, WordPress, VK, Instagram, and other
 connectors later with the same engine. Platform-specific details stay inside the
-connector implementation. The dry-run Website connector proves the interface
+connector implementation. The internal Website connector proves the interface
 without making external API calls.

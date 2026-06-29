@@ -685,6 +685,8 @@ def test_run_post_platform_executes_website_connector_and_returns_detail(
     assert response.status_code == 200
     body = response.json()
     assert body["id"] == str(post.id)
+    assert body["is_public"] is True
+    assert body["published_at"] is not None
     assert body["website_status"] == PlatformStatus.Success.value
     website_job = next(
         job
@@ -694,6 +696,81 @@ def test_run_post_platform_executes_website_connector_and_returns_detail(
     assert website_job["status"] == PlatformStatus.Success.value
     assert website_job["external_post_id"] == str(post.id)
     assert website_job["external_url"] == f"/news/{post.slug}"
+
+
+def test_run_post_platform_publishes_post_to_public_api_and_news(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    run_response = admin_client.post(
+        f"/admin/posts/{post.id}/run/website",
+        headers=admin_headers(),
+    )
+    public_list_response = admin_client.get("/api/posts/public")
+    public_slug_response = admin_client.get(f"/api/posts/public/slug/{post.slug}")
+    news_response = admin_client.get("/news")
+    news_detail_response = admin_client.get(f"/news/{post.slug}")
+
+    assert run_response.status_code == 200
+    assert public_list_response.status_code == 200
+    assert [item["id"] for item in public_list_response.json()] == [str(post.id)]
+    assert public_slug_response.status_code == 200
+    assert public_slug_response.json()["id"] == str(post.id)
+    assert news_response.status_code == 200
+    assert post.title in news_response.text
+    assert news_detail_response.status_code == 200
+    assert post.title in news_detail_response.text
+
+
+def test_unpublish_after_website_run_hides_post_from_public_api_and_news(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    run_response = admin_client.post(
+        f"/admin/posts/{post.id}/run/website",
+        headers=admin_headers(),
+    )
+
+    unpublish_response = admin_client.post(
+        f"/admin/posts/{post.id}/unpublish",
+        headers=admin_headers(),
+    )
+    public_list_response = admin_client.get("/api/posts/public")
+    public_slug_response = admin_client.get(f"/api/posts/public/slug/{post.slug}")
+    news_response = admin_client.get("/news")
+    news_detail_response = admin_client.get(f"/news/{post.slug}")
+
+    assert run_response.status_code == 200
+    assert unpublish_response.status_code == 200
+    assert unpublish_response.json()["is_public"] is False
+    assert public_list_response.status_code == 200
+    assert public_list_response.json() == []
+    assert public_slug_response.status_code == 404
+    assert news_response.status_code == 200
+    assert post.title not in news_response.text
+    assert news_detail_response.status_code == 404
+
+
+def test_run_post_platform_success_job_returns_409(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    first_response = admin_client.post(
+        f"/admin/posts/{post.id}/run/website",
+        headers=admin_headers(),
+    )
+    second_response = admin_client.post(
+        f"/admin/posts/{post.id}/run/website",
+        headers=admin_headers(),
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+    assert "Success" in second_response.json()["detail"]
 
 
 def test_run_post_platform_unknown_post_returns_404(

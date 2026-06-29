@@ -274,6 +274,8 @@ def test_run_website_job_executes_connector_engine(
     assert body["external_post_id"] == str(post.id)
     assert body["external_url"] == f"/news/{post.slug}"
     db_session.refresh(post)
+    assert post.is_public is True
+    assert post.published_at is not None
     assert post.website_status == PlatformStatus.Success
 
 

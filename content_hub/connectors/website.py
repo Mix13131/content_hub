@@ -25,7 +25,7 @@ class WebsiteConnector:
             return ConnectorResult(
                 success=False,
                 error_code="WEBSITE_SLUG_MISSING",
-                error_message="Website dry-run publication requires post.slug",
+                error_message="Website publication requires post.slug",
             )
         return ConnectorResult(success=True, raw_response=self._raw_response())
 
@@ -38,26 +38,26 @@ class WebsiteConnector:
             success=True,
             external_post_id=str(post.id),
             external_url=f"/news/{post.slug}",
-            raw_response={
-                **self._raw_response(),
-                "media_count": len(media),
-            },
+            raw_response=self._raw_response(),
         )
 
     def update(self, post: Post, media: list[Media]) -> ConnectorResult:
         return ConnectorResult(
             success=False,
             error_code="WEBSITE_UPDATE_UNSUPPORTED",
-            error_message="Website dry-run connector does not support update",
+            error_message="Website connector does not support update",
         )
 
     def delete(self, external_post_id: str) -> ConnectorResult:
         return ConnectorResult(
             success=False,
             error_code="WEBSITE_DELETE_UNSUPPORTED",
-            error_message="Website dry-run connector does not support delete",
+            error_message="Website connector does not support delete",
         )
 
     def _raw_response(self) -> dict[str, str]:
-        return {"mode": "dry_run", "connector": self.name}
-
+        return {
+            "mode": "internal",
+            "connector": self.name,
+            "visibility": "public",
+        }
