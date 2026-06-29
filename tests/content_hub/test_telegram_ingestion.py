@@ -1,14 +1,19 @@
 import json
 import logging
 import uuid
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from content_hub.app import create_app
+from content_hub.db import get_db
 from content_hub.enums import (
     ContentSource,
     MediaType,
@@ -20,6 +25,7 @@ from content_hub.enums import (
 )
 from content_hub.models import Media, Post, PublicationJob, PublicationLog
 from content_hub.services.telegram_ingestion import TelegramIngestionService
+from content_hub.settings import Settings, get_settings
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -27,6 +33,28 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES_DIR / name).read_text(encoding="utf-8"))
+
+
+@contextmanager
+def client_with_settings(
+    db_session: Session,
+    settings: Settings,
+) -> Generator[TestClient, None, None]:
+    app = create_app()
+
+    def override_get_db() -> Generator[Session, None, None]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return settings
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.clear()
 
 
 MVP_PLATFORMS = {
@@ -64,6 +92,36 @@ def test_healthz(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_allowed_telegram_chat_ids_setting_empty_disables_filter() -> None:
+    assert Settings(allowed_telegram_chat_ids=None).allowed_telegram_chat_id_set == (
+        frozenset()
+    )
+    assert Settings(allowed_telegram_chat_ids="").allowed_telegram_chat_id_set == (
+        frozenset()
+    )
+    assert Settings(allowed_telegram_chat_ids="   ").allowed_telegram_chat_id_set == (
+        frozenset()
+    )
+
+
+def test_allowed_telegram_chat_ids_setting_parses_csv_and_spaces() -> None:
+    settings = Settings(
+        allowed_telegram_chat_ids=" -1003777865636, -1234567890 ,42 "
+    )
+
+    assert settings.allowed_telegram_chat_id_set == frozenset(
+        {-1003777865636, -1234567890, 42}
+    )
+
+
+def test_allowed_telegram_chat_ids_setting_rejects_invalid_values() -> None:
+    with pytest.raises(ValidationError):
+        Settings(allowed_telegram_chat_ids="-1003777865636,not-a-chat-id")
+
+    with pytest.raises(ValidationError):
+        Settings(allowed_telegram_chat_ids="-1003777865636,,42")
 
 
 def test_accepts_text_channel_post(client: TestClient, db_session: Session) -> None:
@@ -144,6 +202,92 @@ def test_message_text_update_creates_post(
     assert "Тестовое сообщение Content Hub" not in stdout
 
 
+def test_allowed_chat_filter_accepts_configured_message_chat(
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_text_message.json")
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        allowed_telegram_chat_ids=frozenset({-1002234567890}),
+    )
+
+    assert result.ignored is False
+    assert result.created is True
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.telegram_chat_id == -1002234567890
+    assert post.source == ContentSource.telegram_chat
+    assert_publication_jobs_created(db_session, post)
+
+
+def test_allowed_chat_filter_accepts_configured_channel_post_chat(
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_text_channel_post.json")
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        allowed_telegram_chat_ids=frozenset({-1001234567890}),
+    )
+
+    assert result.ignored is False
+    assert result.created is True
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.telegram_chat_id == -1001234567890
+    assert post.source == ContentSource.telegram_channel
+    assert_publication_jobs_created(db_session, post)
+
+
+def test_allowed_chat_filter_accepts_csv_with_multiple_ids_and_spaces(
+    db_session: Session,
+) -> None:
+    settings = Settings(allowed_telegram_chat_ids=" -4570064980, -1002234567890 ")
+    payload = load_fixture("telegram_photo_message.json")
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        allowed_telegram_chat_ids=settings.allowed_telegram_chat_id_set,
+    )
+
+    assert result.ignored is False
+    assert result.created is True
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.telegram_chat_id == -1002234567890
+    assert len(db_session.scalars(select(Media)).all()) == 1
+    assert_publication_jobs_created(db_session, post)
+
+
+def test_allowed_chat_filter_rejects_unconfigured_chat_without_side_effects(
+    db_session: Session,
+    capsys,
+) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        telegram_webhook_secret=None,
+        allowed_telegram_chat_ids="-1003777865636",
+    )
+    payload = load_fixture("telegram_text_message.json")
+
+    with client_with_settings(db_session, settings) as filtered_client:
+        response = filtered_client.post("/webhooks/telegram", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["ignored"] is True
+    assert response.json()["created"] is False
+    assert response.json()["reason"] == "chat_not_allowed"
+    assert db_session.scalars(select(Post)).all() == []
+    assert db_session.scalars(select(Media)).all() == []
+    assert db_session.scalars(select(PublicationJob)).all() == []
+    stdout = capsys.readouterr().out
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RESULT" in stdout
+    assert "ignored=True" in stdout
+    assert "created=False" in stdout
+    assert "reason=chat_not_allowed" in stdout
+
+
 def test_my_chat_member_update_is_ignored_with_supported_reason(
     client: TestClient,
     db_session: Session,
@@ -215,6 +359,7 @@ def test_telegram_webhook_stdout_error_diagnostics_are_safe(
         self: TelegramIngestionService,
         update: dict,
         db: Session,
+        **kwargs: object,
     ) -> None:
         raise RuntimeError("secret-like exception message")
 

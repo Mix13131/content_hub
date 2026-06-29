@@ -12,7 +12,8 @@ Current implementation covers metadata-only core ingestion:
 - Pydantic Settings;
 - SQLAlchemy models;
 - Alembic migration;
-- text/photo/video `channel_post` ingestion;
+- text/photo/video `channel_post` and `message` ingestion;
+- optional Telegram chat ID allowlist for webhook ingestion;
 - media metadata for Telegram photo/video posts;
 - PublicationJob creation for website, Instagram, VK, and Facebook via Instagram sync;
 - DB-only PublicationJob status and retry lifecycle service;
@@ -89,7 +90,13 @@ CONTENT_HUB_ENVIRONMENT=staging
 CONTENT_HUB_DATABASE_URL=
 CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET=
 CONTENT_HUB_ADMIN_API_TOKEN=
+CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS=-1003777865636
 ```
+
+`CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS` is optional. Leave it empty to accept
+all Telegram `channel_post` and `message` updates. Set one ID or a comma-separated
+list, for example `-1003777865636,-1234567890`, to ignore updates from any other
+Telegram chat with `reason=chat_not_allowed`.
 
 ## Run Migrations
 

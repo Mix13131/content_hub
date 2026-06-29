@@ -50,7 +50,11 @@ def create_app() -> FastAPI:
 
         emit_update_received(payload)
         try:
-            result = ingestion_service.ingest_update(payload, db)
+            result = ingestion_service.ingest_update(
+                payload,
+                db,
+                allowed_telegram_chat_ids=settings.allowed_telegram_chat_id_set,
+            )
         except Exception as exc:
             emit_update_error(payload, exc)
             raise
