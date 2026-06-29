@@ -94,6 +94,13 @@ curl -H "X-Content-Hub-Admin-Token: $CONTENT_HUB_ADMIN_API_TOKEN" \
   https://<railway-domain>/admin/posts
 ```
 
+Run a website publication job manually through the dry-run Connector Engine:
+
+```bash
+curl -s -X POST https://<railway-domain>/admin/posts/{post_id}/run/website \
+  -H "X-Content-Hub-Admin-Token: ${CONTENT_HUB_ADMIN_API_TOKEN}"
+```
+
 You can also run the deployed smoke script from a local machine:
 
 ```bash

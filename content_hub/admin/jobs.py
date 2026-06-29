@@ -18,6 +18,10 @@ from content_hub.schemas.admin_jobs import (
     AdminJobResponse,
     AdminJobSuccessRequest,
 )
+from content_hub.services.connector_runner import (
+    ConnectorJobRunError,
+    run_connector_job,
+)
 from content_hub.services.publication_status import (
     PublicationStatusError,
     PublicationStatusService,
@@ -95,6 +99,21 @@ def retry_job(
     db: Annotated[Session, Depends(get_db)],
 ) -> AdminJobResponse:
     job = _run_status_transition(job_id, db, "retry")
+    return AdminJobResponse.model_validate(job)
+
+
+@router.post("/{job_id}/run", response_model=AdminJobResponse)
+def run_job(
+    job_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminJobResponse:
+    _get_job_or_404(job_id, db)
+    try:
+        job = run_connector_job(job_id, db)
+    except ConnectorJobRunError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     return AdminJobResponse.model_validate(job)
 
 

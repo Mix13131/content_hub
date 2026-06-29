@@ -12,6 +12,7 @@ from content_hub.app import create_app
 from content_hub.db import get_db
 from content_hub.enums import PlatformStatus, PublicationPlatform
 from content_hub.models import Post, PublicationJob
+from content_hub.services.publication_status import PublicationStatusService
 from content_hub.services.telegram_ingestion import TelegramIngestionService
 from content_hub.settings import Settings, get_settings
 
@@ -243,6 +244,93 @@ def test_retry_endpoint_returns_error_job_to_waiting(
     assert body["last_error_message"] is None
 
 
+def test_run_job_requires_token(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    _, jobs = create_post_with_jobs(db_session)
+    job = jobs[PublicationPlatform.website]
+
+    response = admin_client.post(f"/admin/jobs/{job.id}/run")
+
+    assert response.status_code == 403
+
+
+def test_run_website_job_executes_connector_engine(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post, jobs = create_post_with_jobs(db_session)
+    job = jobs[PublicationPlatform.website]
+
+    response = admin_client.post(
+        f"/admin/jobs/{job.id}/run",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == PlatformStatus.Success.value
+    assert body["external_post_id"] == str(post.id)
+    assert body["external_url"] == f"/news/{post.slug}"
+    db_session.refresh(post)
+    assert post.website_status == PlatformStatus.Success
+
+
+def test_run_success_job_returns_409(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    _, jobs = create_post_with_jobs(db_session)
+    job = jobs[PublicationPlatform.website]
+    PublicationStatusService().mark_success(job.id, db_session)
+
+    response = admin_client.post(
+        f"/admin/jobs/{job.id}/run",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 409
+    assert "Success" in response.json()["detail"]
+
+
+def test_run_publishing_job_returns_409(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    _, jobs = create_post_with_jobs(db_session)
+    job = jobs[PublicationPlatform.website]
+    PublicationStatusService().start_job(job.id, db_session)
+
+    response = admin_client.post(
+        f"/admin/jobs/{job.id}/run",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 409
+    assert "Publishing" in response.json()["detail"]
+
+
+def test_run_unknown_connector_job_returns_controlled_response(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    _, jobs = create_post_with_jobs(db_session)
+    job = jobs[PublicationPlatform.instagram]
+
+    response = admin_client.post(
+        f"/admin/jobs/{job.id}/run",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == PlatformStatus.Retry.value
+    assert body["attempt_count"] == 1
+    assert body["last_error_code"] == "CONNECTOR_NOT_FOUND"
+    assert body["last_error_message"] == "Connector is not registered: instagram"
+
+
 def test_forbidden_transition_returns_409(
     admin_client: TestClient,
     db_session: Session,
@@ -274,6 +362,11 @@ def test_unknown_job_returns_404(admin_client: TestClient) -> None:
         f"/admin/jobs/{unknown_job_id}/start",
         headers=admin_headers(),
     )
+    run_response = admin_client.post(
+        f"/admin/jobs/{unknown_job_id}/run",
+        headers=admin_headers(),
+    )
 
     assert get_response.status_code == 404
     assert start_response.status_code == 404
+    assert run_response.status_code == 404

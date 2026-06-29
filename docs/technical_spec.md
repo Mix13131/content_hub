@@ -463,10 +463,12 @@ MVP endpoints:
 | `/admin/jobs/{job_id}/success` | POST | временный API отметить успех job |
 | `/admin/jobs/{job_id}/error` | POST | временный API отметить ошибку job |
 | `/admin/jobs/{job_id}/retry` | POST | временный API ручной retry job |
+| `/admin/jobs/{job_id}/run` | POST | ручной запуск job через Connector Engine |
 | `/admin/posts` | GET | read-only список публикаций с фильтрами |
 | `/admin/posts/{post_id}` | GET | read-only карточка публикации с Media, Jobs и Logs |
 | `/admin/posts/{post_id}/publish` | POST | открыть публикацию в публичном API сайта |
 | `/admin/posts/{post_id}/unpublish` | POST | скрыть публикацию из публичного API сайта |
+| `/admin/posts/{post_id}/run/{platform}` | POST | ручной запуск job площадки через Connector Engine |
 | `/admin/posts/{post_id}/retry/{platform}` | POST | повтор публикации на платформу |
 | `/admin/posts/{post_id}/retry-failed` | POST | повтор всех неуспешных платформ |
 | `/news` | GET | публичный список новостей |
@@ -477,6 +479,7 @@ MVP endpoints:
 Внутренние сервисы:
 
 - `TelegramIngestionService`;
+- `ConnectorEngine`;
 - `PublicationQueueService`;
 - `WebsitePublisher`;
 - `InstagramPublisher`;
