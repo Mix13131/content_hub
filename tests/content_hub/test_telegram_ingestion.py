@@ -119,6 +119,10 @@ def test_post_is_created_with_expected_fields(
     assert post.telegram_url == "https://t.me/content_hub_test/42"
     assert post.text == "Новый пост о матрасах и уютной спальне"
     assert post.author == "Юлия Смирнова"
+    assert post.slug == "telegram-c1001234567890-m42"
+    assert post.title == "Новый пост о матрасах и уютной спальне"
+    assert post.meta_description == "Новый пост о матрасах и уютной спальне"
+    assert post.image_alt_text is None
     assert post.post_type == PostType.text
     assert post.photo_count == 0
     assert post.video_count == 0
@@ -183,6 +187,10 @@ def test_photo_channel_post_creates_post_and_largest_photo_media(
     assert post is not None
     assert post.text == "Фото новой спальни с матрасом"
     assert post.post_type == PostType.photo
+    assert post.slug == "telegram-c1001234567890-m43"
+    assert post.title == "Фото новой спальни с матрасом"
+    assert post.meta_description == "Фото новой спальни с матрасом"
+    assert post.image_alt_text == "Фото новой спальни с матрасом"
     assert post.photo_count == 1
     assert post.video_count == 0
     assert post.status == PostStatus.queued
@@ -217,6 +225,10 @@ def test_video_channel_post_creates_post_and_video_media(
     assert post is not None
     assert post.text == "Короткое видео про интерьер"
     assert post.post_type == PostType.video
+    assert post.slug == "telegram-c1001234567890-m44"
+    assert post.title == "Короткое видео про интерьер"
+    assert post.meta_description == "Короткое видео про интерьер"
+    assert post.image_alt_text == "Короткое видео про интерьер"
     assert post.photo_count == 0
     assert post.video_count == 1
     assert post.status == PostStatus.queued
@@ -236,6 +248,22 @@ def test_video_channel_post_creates_post_and_video_media(
     assert media.width == 1080
     assert media.height == 1920
     assert media.duration_seconds == 27
+
+
+def test_generated_slugs_are_unique_for_different_telegram_posts(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    client.post("/webhooks/telegram", json=load_fixture("telegram_text_channel_post.json"))
+    client.post("/webhooks/telegram", json=load_fixture("telegram_photo_channel_post.json"))
+
+    slugs = [post.slug for post in db_session.scalars(select(Post)).all()]
+
+    assert slugs == [
+        "telegram-c1001234567890-m42",
+        "telegram-c1001234567890-m43",
+    ]
+    assert len(slugs) == len(set(slugs))
 
 
 def test_repeated_photo_webhook_does_not_create_duplicate_media(

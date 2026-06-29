@@ -127,6 +127,10 @@ def test_get_admin_posts_returns_summaries_and_filters(
     assert body[0]["telegram_post_id"] == 42
     assert body[0]["post_type"] == PostType.text.value
     assert body[0]["is_public"] is False
+    assert body[0]["slug"] == "telegram-c1001234567890-m42"
+    assert body[0]["title"] == "Новый пост о матрасах и уютной спальне"
+    assert body[0]["meta_description"] == "Новый пост о матрасах и уютной спальне"
+    assert body[0]["image_alt_text"] is None
     assert body[0]["status"] == PostStatus.queued.value
     assert body[0]["website_status"] == PlatformStatus.Publishing.value
     assert body[0]["text_preview"] == "Новый пост о матрасах и уютной спальне"
@@ -147,6 +151,10 @@ def test_get_admin_post_detail_returns_post_media_jobs_and_logs(
     assert body["id"] == str(post.id)
     assert body["text"] == "Фото новой спальни с матрасом"
     assert body["is_public"] is False
+    assert body["slug"] == "telegram-c1001234567890-m43"
+    assert body["title"] == "Фото новой спальни с матрасом"
+    assert body["meta_description"] == "Фото новой спальни с матрасом"
+    assert body["image_alt_text"] == "Фото новой спальни с матрасом"
     assert body["telegram_message_ids"] == [43]
     assert body["media"][0]["id"] == str(media.id)
     assert body["media"][0]["telegram_file_id"] == "photo-large-file-id"
@@ -325,6 +333,116 @@ def test_publish_and_unpublish_unknown_post_return_404(
 
     assert publish_response.status_code == 404
     assert unpublish_response.status_code == 404
+
+
+def test_update_post_seo_normalizes_slug_updates_fields_and_creates_log(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.patch(
+        f"/admin/posts/{post.id}/seo",
+        headers=admin_headers(),
+        json={
+            "slug": "  Custom Slug!  ",
+            "title": "Custom title",
+            "meta_description": "Custom meta description",
+            "image_alt_text": "Custom alt",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["slug"] == "custom-slug"
+    assert body["title"] == "Custom title"
+    assert body["meta_description"] == "Custom meta description"
+    assert body["image_alt_text"] == "Custom alt"
+    assert post.slug == "custom-slug"
+    log = db_session.scalar(
+        select(PublicationLog).where(
+            PublicationLog.post_id == post.id,
+            PublicationLog.event == "post_seo_updated",
+        )
+    )
+    assert log is not None
+    assert log.service == "admin"
+    assert log.level == "info"
+
+
+def test_update_post_seo_allows_partial_update(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.patch(
+        f"/admin/posts/{post.id}/seo",
+        headers=admin_headers(),
+        json={"title": "Only title changed"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["slug"] == "telegram-c1001234567890-m42"
+    assert body["title"] == "Only title changed"
+
+
+def test_update_post_seo_rejects_occupied_slug(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    first_post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+    second_post = create_post_from_fixture(db_session, "telegram_photo_channel_post.json")
+
+    response = admin_client.patch(
+        f"/admin/posts/{second_post.id}/seo",
+        headers=admin_headers(),
+        json={"slug": first_post.slug},
+    )
+
+    assert response.status_code == 409
+
+
+def test_update_post_seo_rejects_empty_normalized_slug(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.patch(
+        f"/admin/posts/{post.id}/seo",
+        headers=admin_headers(),
+        json={"slug": " !!! "},
+    )
+
+    assert response.status_code == 422
+
+
+def test_update_post_seo_requires_token(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.patch(
+        f"/admin/posts/{post.id}/seo",
+        json={"title": "Hidden"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_update_post_seo_unknown_post_returns_404(
+    admin_client: TestClient,
+) -> None:
+    response = admin_client.patch(
+        f"/admin/posts/{uuid.uuid4()}/seo",
+        headers=admin_headers(),
+        json={"title": "Missing"},
+    )
+
+    assert response.status_code == 404
 
 
 def test_retry_post_platform_requires_token(

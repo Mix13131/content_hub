@@ -81,6 +81,15 @@ def main() -> int:
                 post = db.get(Post, post_id)
                 assert post is not None
                 assert post.is_public is False
+                assert post.slug == (
+                    f"telegram-c{abs(post.telegram_chat_id)}-m{post.telegram_post_id}"
+                )
+                assert post.title is not None
+                assert post.meta_description is not None
+                if post.post_type in {PostType.photo, PostType.video}:
+                    assert post.image_alt_text == post.title
+                else:
+                    assert post.image_alt_text is None
 
         list_response = client.get("/api/posts/public")
         list_response.raise_for_status()
@@ -90,6 +99,11 @@ def main() -> int:
         assert post_ids[PostType.photo] not in public_ids
         assert post_ids[PostType.video] not in public_ids
         assert_response_is_public(public_posts)
+
+        private_slug_response = client.get(
+            f"/api/posts/public/slug/{post_slug(post_ids[PostType.text])}"
+        )
+        assert private_slug_response.status_code == 404
 
         publish_response = client.post(
             f"/admin/posts/{post_ids[PostType.photo]}/publish",
@@ -107,6 +121,15 @@ def main() -> int:
         }
         assert post_ids[PostType.photo] in public_after_publish_ids
         assert_response_is_public(public_after_publish)
+        photo_summary = next(
+            post
+            for post in public_after_publish
+            if uuid.UUID(post["id"]) == post_ids[PostType.photo]
+        )
+        assert photo_summary["slug"] == post_slug(post_ids[PostType.photo])
+        assert photo_summary["title"] is not None
+        assert photo_summary["meta_description"] is not None
+        assert photo_summary["image_alt_text"] == photo_summary["title"]
 
         photo_detail_response = client.get(
             f"/api/posts/public/{post_ids[PostType.photo]}"
@@ -114,8 +137,25 @@ def main() -> int:
         photo_detail_response.raise_for_status()
         photo_detail = photo_detail_response.json()
         assert photo_detail["post_type"] == PostType.photo.value
+        assert photo_detail["slug"] == post_slug(post_ids[PostType.photo])
+        assert photo_detail["title"] == photo_summary["title"]
+        assert photo_detail["meta_description"] == photo_summary["meta_description"]
+        assert photo_detail["image_alt_text"] == photo_summary["image_alt_text"]
         assert photo_detail["media"][0]["file_url"] is None
         assert_response_is_public(photo_detail)
+
+        photo_slug_detail_response = client.get(
+            f"/api/posts/public/slug/{post_slug(post_ids[PostType.photo])}"
+        )
+        photo_slug_detail_response.raise_for_status()
+        assert photo_slug_detail_response.json()["id"] == str(post_ids[PostType.photo])
+
+        occupied_slug_response = client.patch(
+            f"/admin/posts/{post_ids[PostType.video]}/seo",
+            headers=admin_headers,
+            json={"slug": post_slug(post_ids[PostType.text])},
+        )
+        assert occupied_slug_response.status_code == 409
 
         unpublish_response = client.post(
             f"/admin/posts/{post_ids[PostType.photo]}/unpublish",
@@ -156,6 +196,10 @@ def main() -> int:
             f"/api/posts/public/{post_ids[PostType.video]}"
         )
         assert error_detail_response.status_code == 404
+        error_slug_detail_response = client.get(
+            f"/api/posts/public/slug/{post_slug(post_ids[PostType.video])}"
+        )
+        assert error_slug_detail_response.status_code == 404
 
     print("Public posts PostgreSQL smoke passed.")
     print(f"text private post: {post_ids[PostType.text]}")
@@ -188,6 +232,14 @@ def detect_payload_post_type(payload: dict[str, Any]) -> PostType:
     if "video" in message:
         return PostType.video
     return PostType.text
+
+
+def post_slug(post_id: uuid.UUID) -> str:
+    with SessionLocal() as db:
+        post = db.get(Post, post_id)
+        assert post is not None
+        assert post.slug is not None
+        return post.slug
 
 
 def assert_response_is_public(body: Any) -> None:

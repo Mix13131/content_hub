@@ -48,6 +48,23 @@ def list_public_posts(
     return [_build_post_summary(post) for post in posts]
 
 
+@router.get("/slug/{slug}", response_model=PublicPostDetailResponse)
+def get_public_post_detail_by_slug(
+    slug: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> PublicPostDetailResponse:
+    post = db.scalar(
+        select(Post)
+        .where(Post.slug == slug)
+        .where(Post.is_public.is_(True))
+        .where(Post.status != PostStatus.error)
+        .options(selectinload(Post.media))
+    )
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return _build_post_detail(post)
+
+
 @router.get("/{post_id}", response_model=PublicPostDetailResponse)
 def get_public_post_detail(
     post_id: uuid.UUID,
@@ -72,6 +89,10 @@ def _build_post_summary(post: Post) -> PublicPostSummaryResponse:
         telegram_url=post.telegram_url,
         text_preview=_preview(post.text),
         author=post.author,
+        slug=post.slug,
+        title=post.title,
+        meta_description=post.meta_description,
+        image_alt_text=post.image_alt_text,
         telegram_posted_at=post.telegram_posted_at,
         post_type=post.post_type,
         photo_count=post.photo_count,
@@ -91,6 +112,10 @@ def _build_post_detail(post: Post) -> PublicPostDetailResponse:
         telegram_url=post.telegram_url,
         text=post.text,
         author=post.author,
+        slug=post.slug,
+        title=post.title,
+        meta_description=post.meta_description,
+        image_alt_text=post.image_alt_text,
         telegram_posted_at=post.telegram_posted_at,
         post_type=post.post_type,
         photo_count=post.photo_count,
