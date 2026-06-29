@@ -119,6 +119,23 @@ class TelegramIngestionService:
                 reason="chat_not_allowed",
             )
 
+        telegram_media_group_id = self._optional_str(message.get("media_group_id"))
+        if telegram_media_group_id:
+            existing_media_group_post = db.scalar(
+                select(Post).where(
+                    Post.telegram_chat_id == telegram_chat_id_int,
+                    Post.telegram_media_group_id == telegram_media_group_id,
+                )
+            )
+            if existing_media_group_post is not None:
+                return self._append_media_group_item(
+                    post=existing_media_group_post,
+                    message=message,
+                    update=update,
+                    update_type=update_type,
+                    db=db,
+                )
+
         existing_post = db.scalar(
             select(Post).where(
                 Post.telegram_chat_id == telegram_chat_id_int,
@@ -155,6 +172,74 @@ class TelegramIngestionService:
         db.commit()
         db.refresh(post)
         return TelegramIngestionResult(ignored=False, created=True, post_id=str(post.id))
+
+    def _append_media_group_item(
+        self,
+        *,
+        post: Post,
+        message: dict[str, Any],
+        update: dict[str, Any],
+        update_type: str,
+        db: Session,
+    ) -> TelegramIngestionResult:
+        telegram_post_id = int(message["message_id"])
+        existing_message_ids = list(post.telegram_message_ids or [])
+        if telegram_post_id in existing_message_ids:
+            return TelegramIngestionResult(
+                ignored=False,
+                created=False,
+                post_id=str(post.id),
+                reason="duplicate",
+            )
+
+        old_text = post.text
+        old_post_type = post.post_type
+        post.telegram_message_ids = [*existing_message_ids, telegram_post_id]
+        post.photo_count += self._photo_count(message)
+        post.video_count += self._video_count(message)
+        post.post_type = self._detect_post_type(post.photo_count, post.video_count)
+
+        item_text = self._extract_text(message)
+        if not post.text and item_text:
+            post.text = item_text
+            self._refresh_default_seo(post, old_text, old_post_type)
+
+        next_sort_order = db.scalar(
+            select(Media.sort_order)
+            .where(Media.post_id == post.id)
+            .order_by(Media.sort_order.desc())
+            .limit(1)
+        )
+        sort_order_start = 0 if next_sort_order is None else next_sort_order + 1
+        db.add_all(
+            self._build_media_records(
+                message,
+                post.id,
+                sort_order_start=sort_order_start,
+            )
+        )
+        db.add(
+            PublicationLog(
+                post_id=post.id,
+                service="telegram",
+                level=PublicationLogLevel.info,
+                event="media_group_item_appended",
+                message="Telegram media group item appended",
+                api_response={
+                    "update_id": update.get("update_id"),
+                    "update_type": update_type,
+                    "telegram_post_id": telegram_post_id,
+                },
+            )
+        )
+        db.commit()
+        db.refresh(post)
+        return TelegramIngestionResult(
+            ignored=False,
+            created=False,
+            post_id=str(post.id),
+            reason="media_group_appended",
+        )
 
     def _update_message(
         self,
@@ -236,6 +321,8 @@ class TelegramIngestionService:
         self,
         message: dict[str, Any],
         post_id: object,
+        *,
+        sort_order_start: int = 0,
     ) -> list[Media]:
         media_records: list[Media] = []
         photo = self._largest_photo_size(message)
@@ -250,7 +337,7 @@ class TelegramIngestionService:
                     telegram_file_unique_id=self._optional_str(
                         photo.get("file_unique_id")
                     ),
-                    sort_order=0,
+                    sort_order=sort_order_start + len(media_records),
                     size_bytes=self._optional_int(photo.get("file_size")),
                     width=self._optional_int(photo.get("width")),
                     height=self._optional_int(photo.get("height")),
@@ -269,7 +356,7 @@ class TelegramIngestionService:
                     telegram_file_unique_id=self._optional_str(
                         video.get("file_unique_id")
                     ),
-                    sort_order=0,
+                    sort_order=sort_order_start + len(media_records),
                     mime_type=self._optional_str(video.get("mime_type")),
                     size_bytes=self._optional_int(video.get("file_size")),
                     width=self._optional_int(video.get("width")),
@@ -279,6 +366,31 @@ class TelegramIngestionService:
             )
 
         return media_records
+
+    def _refresh_default_seo(
+        self,
+        post: Post,
+        old_text: str,
+        old_post_type: PostType,
+    ) -> None:
+        old_seo = build_default_seo(
+            telegram_chat_id=post.telegram_chat_id,
+            telegram_post_id=post.telegram_post_id,
+            text=old_text,
+            post_type=old_post_type,
+        )
+        new_seo = build_default_seo(
+            telegram_chat_id=post.telegram_chat_id,
+            telegram_post_id=post.telegram_post_id,
+            text=post.text,
+            post_type=post.post_type,
+        )
+        if post.title in {None, "", old_seo.title}:
+            post.title = new_seo.title
+        if post.meta_description in {None, "", old_seo.meta_description}:
+            post.meta_description = new_seo.meta_description
+        if post.image_alt_text in {None, "", old_seo.image_alt_text}:
+            post.image_alt_text = new_seo.image_alt_text
 
     def _extract_text(self, message: dict[str, Any]) -> str:
         text = message.get("text")
