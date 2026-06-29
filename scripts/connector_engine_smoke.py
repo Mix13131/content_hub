@@ -67,10 +67,12 @@ def main() -> int:
         assert website_job.external_post_id == str(post.id)
         assert website_job.external_url == f"/news/{post.slug}"
         assert website_job.last_api_response == {
-            "mode": "dry_run",
+            "mode": "internal",
             "connector": "website",
-            "media_count": 0,
+            "visibility": "public",
         }
+        assert post.is_public is True
+        assert post.published_at is not None
         assert post.website_status == PlatformStatus.Success
         assert post.status == PostStatus.partially_published
         assert has_log(db, website_job, "job_started")

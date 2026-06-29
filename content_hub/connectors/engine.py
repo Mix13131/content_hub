@@ -10,6 +10,7 @@ from content_hub.connectors.registry import (
 )
 from content_hub.enums import PublicationPlatform
 from content_hub.models import Media, Post, PublicationJob
+from content_hub.models.post import utc_now
 from content_hub.services.publication_status import PublicationStatusService
 
 
@@ -55,6 +56,8 @@ class ConnectorEngine:
 
         result = connector.publish(post, media)
         if result.success:
+            if job.platform == PublicationPlatform.website:
+                self._publish_post_to_internal_website(post, db)
             return self.status_service.mark_success(
                 job.id,
                 db,
@@ -79,6 +82,12 @@ class ConnectorEngine:
             error_message=result.error_message,
             raw_response=result.raw_response,
         )
+
+    def _publish_post_to_internal_website(self, post: Post, db: Session) -> None:
+        post.is_public = True
+        if post.published_at is None:
+            post.published_at = utc_now()
+        db.flush()
 
     def _get_job(self, job_id: object, db: Session) -> PublicationJob:
         job = db.get(PublicationJob, job_id)

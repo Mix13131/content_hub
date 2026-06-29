@@ -1,2 +1,1 @@
-"""Connector Engine package for dry-run publication adapters."""
-
+"""Connector Engine package for publication adapters."""

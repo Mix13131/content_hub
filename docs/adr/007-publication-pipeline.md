@@ -29,6 +29,8 @@ retry logic.
 
 ## Consequences
 
-The first pipeline is dry-run. It exercises status transitions, logs, external
-ID/URL persistence, and aggregate status updates without Tilda, WordPress, VK,
-Instagram, Facebook, S3, Telegram file download, workers, or Redis.
+The first pipeline is internal-only. It exercises status transitions, logs,
+external ID/URL persistence, and aggregate status updates without Tilda,
+WordPress, VK, Instagram, Facebook, S3, Telegram file download, workers, or
+Redis. The Website connector publishes into Content Hub by setting the post
+public.

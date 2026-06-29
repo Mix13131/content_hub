@@ -37,6 +37,7 @@ registry.
 integrations can be added by implementing a connector and registering it without
 rewriting queue/status logic.
 
-The first implementation is intentionally dry-run only. This keeps the interface
-testable on CI and staging without requiring external credentials or network
-calls.
+The first implementation is intentionally internal-only. The Website connector
+publishes into Content Hub itself by making the post public and returning the
+local `/news/{slug}` URL. This keeps the interface testable on CI and staging
+without requiring external credentials or network calls.
