@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from pathlib import Path
 
@@ -81,6 +82,74 @@ def test_accepts_text_channel_post(client: TestClient, db_session: Session) -> N
     assert len(posts) == 1
     assert posts[0].status == PostStatus.queued
     assert_publication_jobs_created(db_session, posts[0])
+
+
+def test_message_update_is_ignored_with_supported_reason(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    payload = {
+        "update_id": 1001,
+        "message": {
+            "message_id": 7,
+            "text": "This text must not be saved",
+        },
+    }
+
+    response = client.post("/webhooks/telegram", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["ignored"] is True
+    assert response.json()["created"] is False
+    assert response.json()["reason"] == "unsupported_update_type"
+    assert db_session.scalars(select(Post)).all() == []
+
+
+def test_my_chat_member_update_is_ignored_with_supported_reason(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    payload = {
+        "update_id": 1002,
+        "my_chat_member": {
+            "chat": {"id": -1001234567890, "type": "channel"},
+            "new_chat_member": {"status": "administrator"},
+        },
+    }
+
+    response = client.post("/webhooks/telegram", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["ignored"] is True
+    assert response.json()["created"] is False
+    assert response.json()["reason"] == "unsupported_update_type"
+    assert db_session.scalars(select(Post)).all() == []
+
+
+def test_safe_telegram_update_logs_do_not_expose_payload_data(
+    client: TestClient,
+    caplog,
+) -> None:
+    payload = load_fixture("telegram_photo_channel_post.json")
+    caplog.set_level(
+        logging.INFO,
+        logger="content_hub.services.telegram_ingestion",
+    )
+
+    response = client.post("/webhooks/telegram", json=payload)
+
+    assert response.status_code == 200
+    logs = caplog.text
+    assert "telegram_update_received" in logs
+    assert "telegram_update_result" in logs
+    assert "update_type=channel_post" in logs
+    assert "keys=['channel_post', 'update_id']" in logs
+    assert "Фото новой спальни с матрасом" not in logs
+    assert "photo-large-file-id" not in logs
+    assert "photo-large-unique-id" not in logs
+    assert "caption" not in logs
+    assert "file_id" not in logs
+    assert "file_unique_id" not in logs
 
 
 def test_repeated_webhook_does_not_create_duplicate(

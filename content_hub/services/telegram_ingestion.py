@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -18,6 +19,9 @@ from content_hub.enums import (
 from content_hub.models import Media, Post, PublicationLog
 from content_hub.services.publication_queue import PublicationQueueService
 from content_hub.services.seo import build_default_seo
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -42,12 +46,45 @@ class TelegramIngestionService:
         update: dict[str, Any],
         db: Session,
     ) -> TelegramIngestionResult:
+        update_id = update.get("update_id")
+        update_type = self._detect_update_type(update)
+        logger.info(
+            "telegram_update_received update_id=%s keys=%s update_type=%s",
+            update_id,
+            self._top_level_keys(update),
+            update_type,
+        )
+        result = self._ingest_update(update, db, update_type)
+        logger.info(
+            "telegram_update_result update_id=%s ignored=%s created=%s "
+            "reason=%s post_id=%s",
+            update_id,
+            result.ignored,
+            result.created,
+            result.reason,
+            result.post_id,
+        )
+        return result
+
+    def _ingest_update(
+        self,
+        update: dict[str, Any],
+        db: Session,
+        update_type: str,
+    ) -> TelegramIngestionResult:
         message = update.get("channel_post")
         if not isinstance(message, dict):
+            reason = (
+                "empty_channel_post"
+                if update_type == "channel_post"
+                else "unsupported_update_type"
+                if update_type in {"edited_channel_post", "message", "my_chat_member"}
+                else "no_channel_post"
+            )
             return TelegramIngestionResult(
                 ignored=True,
                 created=False,
-                reason="update_without_channel_post",
+                reason=reason,
             )
 
         chat = message.get("chat") or {}
@@ -92,6 +129,20 @@ class TelegramIngestionService:
         db.commit()
         db.refresh(post)
         return TelegramIngestionResult(ignored=False, created=True, post_id=str(post.id))
+
+    def _detect_update_type(self, update: dict[str, Any]) -> str:
+        for update_type in (
+            "channel_post",
+            "message",
+            "edited_channel_post",
+            "my_chat_member",
+        ):
+            if update_type in update:
+                return update_type
+        return "other"
+
+    def _top_level_keys(self, update: dict[str, Any]) -> list[str]:
+        return sorted(str(key) for key in update)
 
     def _build_post(self, message: dict[str, Any]) -> Post:
         chat = message.get("chat") or {}
