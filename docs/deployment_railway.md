@@ -33,10 +33,19 @@ CONTENT_HUB_ENVIRONMENT=staging
 CONTENT_HUB_DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST/DB?sslmode=require
 CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET=<random webhook secret>
 CONTENT_HUB_ADMIN_API_TOKEN=<random admin token>
+CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS=-1003777865636
 ```
 
 `CONTENT_HUB_DATABASE_URL` should point to Neon or another PostgreSQL-compatible
 database. Use the SQLAlchemy `postgresql+psycopg://` driver prefix.
+
+`CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS` is optional. When it is empty or unset,
+Content Hub accepts Telegram `channel_post` and `message` updates from any chat.
+When it is set, use one Telegram chat ID or a comma-separated list. Updates from
+other chats are ignored with `reason=chat_not_allowed` and do not create posts,
+media, or publication jobs. Invalid values fail settings validation on startup so
+the deployment shows a configuration error instead of silently accepting all
+sources.
 
 ## 4. Run migrations
 
@@ -107,7 +116,7 @@ Example shape:
 curl "https://api.telegram.org/bot<bot-token>/setWebhook" \
   -d "url=https://<railway-domain>/webhooks/telegram" \
   -d "secret_token=$CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET" \
-  -d 'allowed_updates=["channel_post","edited_channel_post"]'
+  -d 'allowed_updates=["channel_post","message","edited_channel_post"]'
 ```
 
 Do not store the bot token in GitHub or documentation.

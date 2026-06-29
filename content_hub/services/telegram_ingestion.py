@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -45,6 +46,7 @@ class TelegramIngestionService:
         self,
         update: dict[str, Any],
         db: Session,
+        allowed_telegram_chat_ids: Collection[int] = (),
     ) -> TelegramIngestionResult:
         update_id = update.get("update_id")
         update_type = self._detect_update_type(update)
@@ -54,7 +56,12 @@ class TelegramIngestionService:
             self._top_level_keys(update),
             update_type,
         )
-        result = self._ingest_update(update, db, update_type)
+        result = self._ingest_update(
+            update,
+            db,
+            update_type,
+            allowed_telegram_chat_ids=allowed_telegram_chat_ids,
+        )
         logger.info(
             "telegram_update_result update_id=%s ignored=%s created=%s "
             "reason=%s post_id=%s",
@@ -71,6 +78,7 @@ class TelegramIngestionService:
         update: dict[str, Any],
         db: Session,
         update_type: str,
+        allowed_telegram_chat_ids: Collection[int],
     ) -> TelegramIngestionResult:
         message = self._update_message(update, update_type)
         if not isinstance(message, dict):
@@ -98,11 +106,23 @@ class TelegramIngestionService:
                 created=False,
                 reason="missing_chat_or_message_id",
             )
+        telegram_chat_id_int = int(telegram_chat_id)
+        telegram_post_id_int = int(telegram_post_id)
+
+        if (
+            allowed_telegram_chat_ids
+            and telegram_chat_id_int not in allowed_telegram_chat_ids
+        ):
+            return TelegramIngestionResult(
+                ignored=True,
+                created=False,
+                reason="chat_not_allowed",
+            )
 
         existing_post = db.scalar(
             select(Post).where(
-                Post.telegram_chat_id == int(telegram_chat_id),
-                Post.telegram_post_id == int(telegram_post_id),
+                Post.telegram_chat_id == telegram_chat_id_int,
+                Post.telegram_post_id == telegram_post_id_int,
             )
         )
         if existing_post is not None:
