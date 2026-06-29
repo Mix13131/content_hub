@@ -95,3 +95,10 @@ jobs:
           CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
           CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET: ci-telegram-secret
         run: python scripts/connector_engine_smoke.py
+
+      - name: Run admin connector run smoke
+        env:
+          CONTENT_HUB_DATABASE_URL: postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub
+          CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET: ci-telegram-secret
+          CONTENT_HUB_ADMIN_API_TOKEN: ci-admin-token
+        run: python scripts/admin_run_connector_smoke.py

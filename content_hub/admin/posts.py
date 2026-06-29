@@ -27,6 +27,10 @@ from content_hub.schemas.admin_posts import (
     AdminPostSummaryResponse,
 )
 from content_hub.services.seo import normalize_slug
+from content_hub.services.connector_runner import (
+    ConnectorJobRunError,
+    run_connector_job,
+)
 from content_hub.services.publication_status import (
     PublicationStatusError,
     PublicationStatusService,
@@ -190,6 +194,23 @@ def retry_failed_post_jobs(
         retried_count=len(retried_platforms),
         retried_platforms=retried_platforms,
     )
+
+
+@router.post("/{post_id}/run/{platform}", response_model=AdminPostDetailResponse)
+def run_post_platform(
+    post_id: uuid.UUID,
+    platform: PublicationPlatform,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminPostDetailResponse:
+    _get_post_or_404(post_id, db)
+    job = _get_job_or_404(post_id, platform, db)
+    try:
+        run_connector_job(job.id, db)
+    except ConnectorJobRunError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return _build_post_detail_response(post_id, db)
 
 
 def _get_post_or_404(post_id: uuid.UUID, db: Session) -> Post:

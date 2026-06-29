@@ -658,3 +658,64 @@ def test_retry_failed_post_jobs_returns_zero_when_nothing_matches(
     assert body["retried_count"] == 0
     assert body["retried_platforms"] == []
     assert body["post"]["status"] == PostStatus.queued.value
+
+
+def test_run_post_platform_requires_token(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.post(f"/admin/posts/{post.id}/run/website")
+
+    assert response.status_code == 403
+
+
+def test_run_post_platform_executes_website_connector_and_returns_detail(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/run/website",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(post.id)
+    assert body["website_status"] == PlatformStatus.Success.value
+    website_job = next(
+        job
+        for job in body["jobs"]
+        if job["platform"] == PublicationPlatform.website.value
+    )
+    assert website_job["status"] == PlatformStatus.Success.value
+    assert website_job["external_post_id"] == str(post.id)
+    assert website_job["external_url"] == f"/news/{post.slug}"
+
+
+def test_run_post_platform_unknown_post_returns_404(
+    admin_client: TestClient,
+) -> None:
+    response = admin_client.post(
+        f"/admin/posts/{uuid.uuid4()}/run/website",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 404
+
+
+def test_run_post_platform_unknown_job_returns_404(
+    admin_client: TestClient,
+    db_session: Session,
+) -> None:
+    post = create_post_from_fixture(db_session, "telegram_text_channel_post.json")
+
+    response = admin_client.post(
+        f"/admin/posts/{post.id}/run/telegram_story",
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 404
