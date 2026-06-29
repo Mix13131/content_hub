@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <title>{{ post.title or "Telegram post" }}</title>
+    <meta name="description" content="{{ meta_description }}">
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>{{ post.title or "Telegram post" }}</h1>
+        {% if post.meta_description %}
+          <p>{{ post.meta_description }}</p>
+        {% endif %}
+        <dl>
+          <dt>Date</dt>
+          <dd>{{ post.telegram_posted_at }}</dd>
+          <dt>Type</dt>
+          <dd>{{ post.post_type.value }}</dd>
+        </dl>
+        <pre>{{ post.text }}</pre>
+        {% if post.telegram_url %}
+          <p><a href="{{ post.telegram_url }}">Telegram source</a></p>
+        {% endif %}
+        {% if media %}
+          <h2>Media</h2>
+          <ul>
+            {% for item in media %}
+              <li>
+                <dl>
+                  <dt>Type</dt>
+                  <dd>{{ item.type.value }}</dd>
+                  <dt>Sort order</dt>
+                  <dd>{{ item.sort_order }}</dd>
+                  {% if item.mime_type %}
+                    <dt>MIME type</dt>
+                    <dd>{{ item.mime_type }}</dd>
+                  {% endif %}
+                  {% if item.size_bytes %}
+                    <dt>Size bytes</dt>
+                    <dd>{{ item.size_bytes }}</dd>
+                  {% endif %}
+                  {% if item.width %}
+                    <dt>Width</dt>
+                    <dd>{{ item.width }}</dd>
+                  {% endif %}
+                  {% if item.height %}
+                    <dt>Height</dt>
+                    <dd>{{ item.height }}</dd>
+                  {% endif %}
+                  {% if item.duration_seconds %}
+                    <dt>Duration seconds</dt>
+                    <dd>{{ item.duration_seconds }}</dd>
+                  {% endif %}
+                  {% if item.file_url %}
+                    <dt>File URL</dt>
+                    <dd><a href="{{ item.file_url }}">{{ item.file_url }}</a></dd>
+                  {% endif %}
+                </dl>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </article>
+    </main>
+  </body>
+</html>

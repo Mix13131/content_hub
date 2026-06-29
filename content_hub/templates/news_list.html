@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <title>News</title>
+    <meta name="description" content="Public Content Hub posts">
+  </head>
+  <body>
+    <main>
+      <h1>News</h1>
+      {% if posts %}
+        <ul>
+          {% for post in posts %}
+            <li>
+              <article>
+                <h2>
+                  <a href="/news/{{ post.slug }}">{{ post.title or "Telegram post" }}</a>
+                </h2>
+                <p>{{ post.meta_description or text_preview(post.text) }}</p>
+                <dl>
+                  <dt>Date</dt>
+                  <dd>{{ post.telegram_posted_at }}</dd>
+                  <dt>Type</dt>
+                  <dd>{{ post.post_type.value }}</dd>
+                </dl>
+              </article>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>No public posts yet.</p>
+      {% endif %}
+    </main>
+  </body>
+</html>
