@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from content_hub.app import app
 from content_hub.db import SessionLocal
 from content_hub.enums import (
+    ContentSource,
     MediaType,
     PlatformStatus,
     PostType,
@@ -47,6 +48,7 @@ def main() -> int:
         build_payload("telegram_text_channel_post.json", offset=1),
         build_payload("telegram_photo_channel_post.json", offset=2),
         build_payload("telegram_video_channel_post.json", offset=3),
+        build_payload("telegram_text_message.json", offset=4),
     ]
     headers = {}
     if settings.telegram_webhook_secret:
@@ -94,7 +96,7 @@ def build_payload(fixture_name: str, offset: int) -> dict[str, Any]:
     unique_id = int(time.time_ns() // 1000) + offset
 
     payload["update_id"] = unique_id
-    message = payload["channel_post"]
+    message = update_message(payload)
     message["message_id"] = unique_id
     message["date"] = int(now.timestamp())
     if "text" in message:
@@ -105,7 +107,7 @@ def build_payload(fixture_name: str, offset: int) -> dict[str, Any]:
 
 
 def verify_post(db: Session, payload: dict[str, Any]) -> Post:
-    message = payload["channel_post"]
+    message = update_message(payload)
     chat_id = int(message["chat"]["id"])
     message_id = int(message["message_id"])
 
@@ -119,6 +121,7 @@ def verify_post(db: Session, payload: dict[str, Any]) -> Post:
     assert isinstance(post.id, uuid.UUID), type(post.id)
     assert post.telegram_message_ids == [message_id]
     assert post.text == (message.get("text") or message.get("caption") or "")
+    assert post.source == expected_source(payload)
     assert post.status == "queued"
     assert post.is_public is False
     assert post.slug == f"telegram-c{abs(chat_id)}-m{message_id}"
@@ -143,9 +146,32 @@ def verify_post(db: Session, payload: dict[str, Any]) -> Post:
     assert log is not None
     assert log.service == "telegram"
     assert log.event == "post_received"
+    assert log.api_response["update_type"] == expected_update_type(payload)
     verify_publication_jobs(db, post)
     verify_media(db, post, message)
     return post
+
+
+def update_message(payload: dict[str, Any]) -> dict[str, Any]:
+    for update_type in ("channel_post", "message"):
+        message = payload.get(update_type)
+        if isinstance(message, dict):
+            return message
+    raise AssertionError(f"Unsupported test payload keys: {sorted(payload)}")
+
+
+def expected_update_type(payload: dict[str, Any]) -> str:
+    if isinstance(payload.get("channel_post"), dict):
+        return "channel_post"
+    if isinstance(payload.get("message"), dict):
+        return "message"
+    raise AssertionError(f"Unsupported test payload keys: {sorted(payload)}")
+
+
+def expected_source(payload: dict[str, Any]) -> ContentSource:
+    if expected_update_type(payload) == "message":
+        return ContentSource.telegram_chat
+    return ContentSource.telegram_channel
 
 
 def verify_publication_jobs(db: Session, post: Post) -> None:

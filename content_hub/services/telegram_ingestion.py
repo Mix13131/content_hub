@@ -72,13 +72,15 @@ class TelegramIngestionService:
         db: Session,
         update_type: str,
     ) -> TelegramIngestionResult:
-        message = update.get("channel_post")
+        message = self._update_message(update, update_type)
         if not isinstance(message, dict):
             reason = (
                 "empty_channel_post"
                 if update_type == "channel_post"
+                else "empty_message"
+                if update_type == "message"
                 else "unsupported_update_type"
-                if update_type in {"edited_channel_post", "message", "my_chat_member"}
+                if update_type in {"edited_channel_post", "my_chat_member"}
                 else "no_channel_post"
             )
             return TelegramIngestionResult(
@@ -111,7 +113,8 @@ class TelegramIngestionService:
                 reason="duplicate",
             )
 
-        post = self._build_post(message)
+        source = self._source_for_update_type(update_type)
+        post = self._build_post(message, source)
         db.add(post)
         db.flush()
         db.add_all(self._build_media_records(message, post.id))
@@ -121,14 +124,35 @@ class TelegramIngestionService:
                 service="telegram",
                 level=PublicationLogLevel.info,
                 event="post_received",
-                message="Telegram channel post saved",
-                api_response={"update_id": update.get("update_id")},
+                message="Telegram update saved",
+                api_response={
+                    "update_id": update.get("update_id"),
+                    "update_type": update_type,
+                },
             )
         )
         self.publication_queue_service.create_jobs_for_post(post, db)
         db.commit()
         db.refresh(post)
         return TelegramIngestionResult(ignored=False, created=True, post_id=str(post.id))
+
+    def _update_message(
+        self,
+        update: dict[str, Any],
+        update_type: str,
+    ) -> dict[str, Any] | None:
+        if update_type == "channel_post":
+            message = update.get("channel_post")
+            return message if isinstance(message, dict) else None
+        if update_type == "message":
+            message = update.get("message")
+            return message if isinstance(message, dict) else None
+        return None
+
+    def _source_for_update_type(self, update_type: str) -> ContentSource:
+        if update_type == "message":
+            return ContentSource.telegram_chat
+        return ContentSource.telegram_channel
 
     def _detect_update_type(self, update: dict[str, Any]) -> str:
         for update_type in (
@@ -144,7 +168,7 @@ class TelegramIngestionService:
     def _top_level_keys(self, update: dict[str, Any]) -> list[str]:
         return sorted(str(key) for key in update)
 
-    def _build_post(self, message: dict[str, Any]) -> Post:
+    def _build_post(self, message: dict[str, Any], source: ContentSource) -> Post:
         chat = message.get("chat") or {}
         telegram_post_id = int(message["message_id"])
         telegram_chat_id = int(chat["id"])
@@ -179,7 +203,7 @@ class TelegramIngestionService:
             photo_count=photo_count,
             video_count=video_count,
             is_public=False,
-            source=ContentSource.telegram_channel,
+            source=source,
             status=PostStatus.saved,
             website_status=PlatformStatus.Waiting,
             instagram_status=PlatformStatus.Waiting,
