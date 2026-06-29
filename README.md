@@ -76,9 +76,44 @@ Branch protection requires the GitHub Actions `test` check before merging into `
 .venv/bin/uvicorn content_hub.main:app --reload
 ```
 
+Railway can run the app through the included `Procfile`:
+
+```text
+web: uvicorn content_hub.main:app --host 0.0.0.0 --port ${PORT:-8000}
+```
+
+Required staging env vars are listed in `.env.example`:
+
+```text
+CONTENT_HUB_ENVIRONMENT=staging
+CONTENT_HUB_DATABASE_URL=
+CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET=
+CONTENT_HUB_ADMIN_API_TOKEN=
+```
+
 ## Run Migrations
 
 ```bash
 CONTENT_HUB_DATABASE_URL=postgresql+psycopg://user:password@host:5432/db \
   .venv/bin/alembic -c content_hub/alembic.ini upgrade head
+```
+
+The same migration can be run through:
+
+```bash
+CONTENT_HUB_DATABASE_URL=postgresql+psycopg://user:password@host:5432/db \
+  .venv/bin/python scripts/run_migrations.py
+```
+
+## Deployment
+
+Railway staging deployment notes are in
+[docs/deployment_railway.md](docs/deployment_railway.md).
+
+After deploy, run a public HTTP smoke check:
+
+```bash
+CONTENT_HUB_BASE_URL=https://example.up.railway.app \
+CONTENT_HUB_ADMIN_API_TOKEN=admin-token \
+  .venv/bin/python scripts/deployed_smoke.py
 ```
