@@ -654,6 +654,146 @@ def test_video_message_creates_post_and_video_media(
     assert media.duration_seconds == 27
 
 
+def test_media_group_first_item_creates_post_and_media(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_media_group_photo_1_message.json")
+
+    response = client.post("/webhooks/telegram", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["created"] is True
+    assert response.json()["reason"] is None
+
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.telegram_post_id == 61
+    assert post.telegram_media_group_id == "media-group-bedroom"
+    assert post.telegram_message_ids == [61]
+    assert post.text == ""
+    assert post.title == "Photo post"
+    assert post.meta_description is None
+    assert post.image_alt_text == "Photo post"
+    assert post.post_type == PostType.photo
+    assert post.photo_count == 1
+    assert post.video_count == 0
+    assert post.source == ContentSource.telegram_chat
+    assert_publication_jobs_created(db_session, post)
+
+    media = db_session.scalars(
+        select(Media).where(Media.post_id == post.id).order_by(Media.sort_order)
+    ).all()
+    assert len(media) == 1
+    assert media[0].telegram_file_id == "media-group-photo-1-large-file-id"
+    assert media[0].sort_order == 0
+
+
+def test_media_group_second_item_appends_to_existing_post(
+    client: TestClient,
+    db_session: Session,
+    capsys,
+) -> None:
+    first_payload = load_fixture("telegram_media_group_photo_1_message.json")
+    second_payload = load_fixture("telegram_media_group_photo_2_message.json")
+
+    first_response = client.post("/webhooks/telegram", json=first_payload)
+    second_response = client.post("/webhooks/telegram", json=second_payload)
+
+    assert first_response.json()["created"] is True
+    assert second_response.status_code == 200
+    assert second_response.json()["ignored"] is False
+    assert second_response.json()["created"] is False
+    assert second_response.json()["reason"] == "media_group_appended"
+    assert second_response.json()["post_id"] == first_response.json()["post_id"]
+    stdout = capsys.readouterr().out
+    assert "CONTENT_HUB_TELEGRAM_UPDATE_RESULT" in stdout
+    assert "ignored=False" in stdout
+    assert "created=False" in stdout
+    assert "reason=media_group_appended" in stdout
+
+    posts = db_session.scalars(select(Post)).all()
+    assert len(posts) == 1
+    post = posts[0]
+    assert post.telegram_post_id == 61
+    assert post.telegram_media_group_id == "media-group-bedroom"
+    assert post.telegram_message_ids == [61, 62]
+    assert post.text == "Альбом спальни с новым матрасом"
+    assert post.title == "Альбом спальни с новым матрасом"
+    assert post.meta_description == "Альбом спальни с новым матрасом"
+    assert post.image_alt_text == "Альбом спальни с новым матрасом"
+    assert post.post_type == PostType.photo
+    assert post.photo_count == 2
+    assert post.video_count == 0
+
+    media = db_session.scalars(
+        select(Media).where(Media.post_id == post.id).order_by(Media.sort_order)
+    ).all()
+    assert len(media) == 2
+    assert [item.sort_order for item in media] == [0, 1]
+    assert [item.telegram_file_id for item in media] == [
+        "media-group-photo-1-large-file-id",
+        "media-group-photo-2-large-file-id",
+    ]
+    assert len(db_session.scalars(select(PublicationJob)).all()) == 4
+    assert_publication_jobs_created(db_session, post)
+
+
+def test_media_group_duplicate_item_does_not_duplicate_media_or_jobs(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    first_payload = load_fixture("telegram_media_group_photo_1_message.json")
+    second_payload = load_fixture("telegram_media_group_photo_2_message.json")
+
+    client.post("/webhooks/telegram", json=first_payload)
+    append_response = client.post("/webhooks/telegram", json=second_payload)
+    duplicate_response = client.post("/webhooks/telegram", json=second_payload)
+
+    assert append_response.json()["reason"] == "media_group_appended"
+    assert duplicate_response.json()["created"] is False
+    assert duplicate_response.json()["reason"] == "duplicate"
+
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.telegram_message_ids == [61, 62]
+    assert post.photo_count == 2
+    assert len(db_session.scalars(select(Media)).all()) == 2
+    assert len(db_session.scalars(select(PublicationJob)).all()) == 4
+
+
+def test_media_group_video_item_updates_video_count_and_post_type(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    first_payload = load_fixture("telegram_media_group_photo_1_message.json")
+    video_payload = load_fixture("telegram_media_group_video_message.json")
+
+    client.post("/webhooks/telegram", json=first_payload)
+    response = client.post("/webhooks/telegram", json=video_payload)
+
+    assert response.status_code == 200
+    assert response.json()["created"] is False
+    assert response.json()["reason"] == "media_group_appended"
+
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.telegram_message_ids == [61, 63]
+    assert post.post_type == PostType.mixed
+    assert post.photo_count == 1
+    assert post.video_count == 1
+
+    media = db_session.scalars(
+        select(Media).where(Media.post_id == post.id).order_by(Media.sort_order)
+    ).all()
+    assert len(media) == 2
+    assert [item.type for item in media] == [MediaType.photo, MediaType.video]
+    assert media[1].telegram_file_id == "media-group-video-file-id"
+    assert media[1].telegram_file_unique_id == "media-group-video-unique-id"
+    assert media[1].duration_seconds == 19
+    assert len(db_session.scalars(select(PublicationJob)).all()) == 4
+
+
 def test_generated_slugs_are_unique_for_different_telegram_posts(
     client: TestClient,
     db_session: Session,
