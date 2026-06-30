@@ -68,6 +68,16 @@ def test_queue_service_does_not_import_publishers() -> None:
     assert "content_hub.connectors.website" not in source
 
 
+def test_telegram_ingestion_uses_storage_abstraction_only() -> None:
+    source = (
+        PROJECT_ROOT / "content_hub" / "services" / "telegram_ingestion.py"
+    ).read_text(encoding="utf-8")
+    assert "boto3" not in source
+    assert "S3CompatibleStorage" not in source
+    assert "content_hub.storage.s3" not in source
+    assert "getFile" not in source
+
+
 def test_status_service_does_not_import_publishers() -> None:
     source = (
         PROJECT_ROOT / "content_hub" / "services" / "publication_status.py"

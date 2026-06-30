@@ -5,5 +5,6 @@ SQLAlchemy==2.0.36
 alembic==1.14.0
 pydantic-settings==2.7.1
 psycopg[binary]==3.2.3
+boto3==1.35.99
 pytest==8.3.4
 httpx==0.28.1

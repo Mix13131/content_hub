@@ -17,8 +17,10 @@ from content_hub.services.telegram_diagnostics import (
     emit_update_received,
     emit_update_result,
 )
+from content_hub.services.telegram_files import create_telegram_file_downloader
 from content_hub.services.telegram_ingestion import TelegramIngestionService
 from content_hub.settings import Settings, get_settings
+from content_hub.storage.engine import create_media_storage_engine
 
 
 def create_app() -> FastAPI:
@@ -52,10 +54,13 @@ def create_app() -> FastAPI:
 
         emit_update_received(payload)
         try:
+            storage_engine = create_media_storage_engine(settings)
             result = ingestion_service.ingest_update(
                 payload,
                 db,
                 allowed_telegram_chat_ids=settings.allowed_telegram_chat_id_set,
+                storage_engine=storage_engine,
+                telegram_file_downloader=create_telegram_file_downloader(settings),
             )
         except Exception as exc:
             emit_update_error(payload, exc)
