@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from content_hub.admin.jobs import router as admin_jobs_router
 from content_hub.admin.posts import router as admin_posts_router
 from content_hub.db import get_db
+from content_hub.preview.tilda import router as tilda_preview_router
 from content_hub.public.news import router as news_router
 from content_hub.public.posts import router as public_posts_router
 from content_hub.services.telegram_diagnostics import (
@@ -26,6 +27,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_posts_router)
     app.include_router(news_router)
     app.include_router(public_posts_router)
+    app.include_router(tilda_preview_router)
     ingestion_service = TelegramIngestionService()
 
     @app.get("/healthz")
