@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from content_hub.connectors.base import Connector
+from content_hub.connectors.tilda import TildaConnector
 from content_hub.connectors.website import WebsiteConnector
 
 
@@ -25,5 +26,5 @@ class ConnectorRegistry:
 def default_connector_registry() -> ConnectorRegistry:
     registry = ConnectorRegistry()
     registry.register(WebsiteConnector())
+    registry.register(TildaConnector())
     return registry
-

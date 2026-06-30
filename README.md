@@ -77,6 +77,14 @@ After a successful website run, verify the public page:
 curl -s https://web-production-6c604.up.railway.app/news/{slug}
 ```
 
+Tilda preview is internal-only and does not call Tilda API. It renders the
+generated page HTML for an existing post:
+
+```bash
+curl -s https://web-production-6c604.up.railway.app/preview/tilda/{post_id} \
+  -H "X-Content-Hub-Admin-Token: ${CONTENT_HUB_ADMIN_API_TOKEN}"
+```
+
 Public post endpoints do not require an admin token and return only posts with `is_public=true` and `status!=error`. Responses include `is_public`, return metadata-only media fields, and do not expose Telegram file identifiers or storage keys.
 
 See [docs/postgres_smoke.md](docs/postgres_smoke.md).
