@@ -11,8 +11,17 @@ class Settings(BaseSettings):
         "postgresql+psycopg://content_hub:content_hub@localhost:5432/content_hub"
     )
     telegram_webhook_secret: str | None = None
+    telegram_bot_token: str | None = None
     admin_api_token: str | None = None
     allowed_telegram_chat_ids: str | None = None
+    media_storage_provider: str = "s3"
+    storage_enabled: bool = False
+    s3_endpoint_url: str | None = None
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    s3_bucket: str | None = None
+    s3_region: str | None = None
+    s3_public_base_url: str | None = None
 
     @field_validator("allowed_telegram_chat_ids")
     @classmethod
@@ -33,6 +42,14 @@ class Settings(BaseSettings):
                     "Telegram chat IDs separated by commas"
                 ) from exc
         return value
+
+    @field_validator("media_storage_provider")
+    @classmethod
+    def validate_media_storage_provider(cls, value: str) -> str:
+        provider = value.strip().lower()
+        if not provider:
+            raise ValueError("CONTENT_HUB_MEDIA_STORAGE_PROVIDER must not be empty")
+        return provider
 
     @property
     def allowed_telegram_chat_id_set(self) -> frozenset[int]:

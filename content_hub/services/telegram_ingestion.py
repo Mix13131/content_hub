@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +21,12 @@ from content_hub.enums import (
 from content_hub.models import Media, Post, PublicationLog
 from content_hub.services.publication_queue import PublicationQueueService
 from content_hub.services.seo import build_default_seo
+from content_hub.services.telegram_files import (
+    TelegramFileDownloadError,
+    TelegramFileDownloader,
+)
+from content_hub.storage.base import StorageError
+from content_hub.storage.engine import MediaStorageEngine
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +38,24 @@ class TelegramIngestionResult:
     created: bool
     post_id: str | None = None
     reason: str | None = None
+
+
+class MediaStorageProcessingError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        service: str,
+        event: str,
+        reason: str,
+        message: str,
+        error_type: str,
+    ) -> None:
+        super().__init__(message)
+        self.service = service
+        self.event = event
+        self.reason = reason
+        self.message = message
+        self.error_type = error_type
 
 
 class TelegramIngestionService:
@@ -47,6 +72,8 @@ class TelegramIngestionService:
         update: dict[str, Any],
         db: Session,
         allowed_telegram_chat_ids: Collection[int] = (),
+        storage_engine: MediaStorageEngine | None = None,
+        telegram_file_downloader: TelegramFileDownloader | None = None,
     ) -> TelegramIngestionResult:
         update_id = update.get("update_id")
         update_type = self._detect_update_type(update)
@@ -61,6 +88,8 @@ class TelegramIngestionService:
             db,
             update_type,
             allowed_telegram_chat_ids=allowed_telegram_chat_ids,
+            storage_engine=storage_engine,
+            telegram_file_downloader=telegram_file_downloader,
         )
         logger.info(
             "telegram_update_result update_id=%s ignored=%s created=%s "
@@ -79,6 +108,8 @@ class TelegramIngestionService:
         db: Session,
         update_type: str,
         allowed_telegram_chat_ids: Collection[int],
+        storage_engine: MediaStorageEngine | None,
+        telegram_file_downloader: TelegramFileDownloader | None,
     ) -> TelegramIngestionResult:
         message = self._update_message(update, update_type)
         if not isinstance(message, dict):
@@ -134,6 +165,8 @@ class TelegramIngestionService:
                     update=update,
                     update_type=update_type,
                     db=db,
+                    storage_engine=storage_engine,
+                    telegram_file_downloader=telegram_file_downloader,
                 )
 
         existing_post = db.scalar(
@@ -154,7 +187,34 @@ class TelegramIngestionService:
         post = self._build_post(message, source)
         db.add(post)
         db.flush()
-        db.add_all(self._build_media_records(message, post.id))
+        media_records = self._build_media_records(message, post.id)
+        if storage_engine is not None and media_records:
+            post.status = PostStatus.saving_media
+            try:
+                self._store_media_records(
+                    message=message,
+                    media_records=media_records,
+                    storage_engine=storage_engine,
+                    telegram_file_downloader=telegram_file_downloader,
+                )
+            except MediaStorageProcessingError as exc:
+                db.add_all(media_records)
+                self._record_storage_error(
+                    post=post,
+                    storage_engine=storage_engine,
+                    error=exc,
+                    db=db,
+                )
+                db.commit()
+                db.refresh(post)
+                return TelegramIngestionResult(
+                    ignored=False,
+                    created=True,
+                    post_id=str(post.id),
+                    reason=exc.reason,
+                )
+
+        db.add_all(media_records)
         db.add(
             PublicationLog(
                 post_id=post.id,
@@ -181,6 +241,8 @@ class TelegramIngestionService:
         update: dict[str, Any],
         update_type: str,
         db: Session,
+        storage_engine: MediaStorageEngine | None,
+        telegram_file_downloader: TelegramFileDownloader | None,
     ) -> TelegramIngestionResult:
         telegram_post_id = int(message["message_id"])
         existing_message_ids = list(post.telegram_message_ids or [])
@@ -211,13 +273,38 @@ class TelegramIngestionService:
             .limit(1)
         )
         sort_order_start = 0 if next_sort_order is None else next_sort_order + 1
-        db.add_all(
-            self._build_media_records(
-                message,
-                post.id,
-                sort_order_start=sort_order_start,
-            )
+        media_records = self._build_media_records(
+            message,
+            post.id,
+            sort_order_start=sort_order_start,
         )
+        if storage_engine is not None and media_records:
+            post.status = PostStatus.saving_media
+            try:
+                self._store_media_records(
+                    message=message,
+                    media_records=media_records,
+                    storage_engine=storage_engine,
+                    telegram_file_downloader=telegram_file_downloader,
+                )
+            except MediaStorageProcessingError as exc:
+                db.add_all(media_records)
+                self._record_storage_error(
+                    post=post,
+                    storage_engine=storage_engine,
+                    error=exc,
+                    db=db,
+                )
+                db.commit()
+                db.refresh(post)
+                return TelegramIngestionResult(
+                    ignored=False,
+                    created=False,
+                    post_id=str(post.id),
+                    reason=exc.reason,
+                )
+
+        db.add_all(media_records)
         db.add(
             PublicationLog(
                 post_id=post.id,
@@ -366,6 +453,141 @@ class TelegramIngestionService:
             )
 
         return media_records
+
+    def _store_media_records(
+        self,
+        *,
+        message: dict[str, Any],
+        media_records: list[Media],
+        storage_engine: MediaStorageEngine,
+        telegram_file_downloader: TelegramFileDownloader | None,
+    ) -> None:
+        if telegram_file_downloader is None:
+            raise MediaStorageProcessingError(
+                service="telegram",
+                event="media_download_failed",
+                reason="media_download_failed",
+                message="Telegram file downloader is not configured.",
+                error_type="configuration_error",
+            )
+
+        chat = message.get("chat") or {}
+        telegram_chat_id = int(chat["id"])
+        telegram_post_id = int(message["message_id"])
+
+        for media in media_records:
+            storage_key = self._storage_key(
+                telegram_chat_id=telegram_chat_id,
+                telegram_post_id=telegram_post_id,
+                media=media,
+            )
+            media.storage_key = storage_key
+            try:
+                if storage_engine.exists(storage_key):
+                    media.file_url = storage_engine.public_url(storage_key)
+                    continue
+            except StorageError as exc:
+                raise MediaStorageProcessingError(
+                    service="storage",
+                    event="media_storage_exists_failed",
+                    reason="media_storage_failed",
+                    message="Media storage exists check failed.",
+                    error_type=type(exc).__name__,
+                ) from exc
+
+            try:
+                downloaded_file = telegram_file_downloader.download(
+                    media.telegram_file_id
+                )
+            except TelegramFileDownloadError as exc:
+                raise MediaStorageProcessingError(
+                    service="telegram",
+                    event="media_download_failed",
+                    reason="media_download_failed",
+                    message="Telegram media download failed.",
+                    error_type=type(exc).__name__,
+                ) from exc
+
+            content_type = (
+                downloaded_file.content_type
+                or media.mime_type
+                or self._default_content_type(media.type)
+            )
+            try:
+                result = storage_engine.upload(
+                    key=storage_key,
+                    content=downloaded_file.content,
+                    content_type=content_type,
+                )
+            except StorageError as exc:
+                raise MediaStorageProcessingError(
+                    service="storage",
+                    event="media_upload_failed",
+                    reason="media_upload_failed",
+                    message="Media storage upload failed.",
+                    error_type=type(exc).__name__,
+                ) from exc
+
+            media.storage_key = result.storage_key
+            media.file_url = result.file_url
+            if media.mime_type is None:
+                media.mime_type = content_type
+            if media.size_bytes is None:
+                media.size_bytes = result.size_bytes or len(downloaded_file.content)
+
+    def _record_storage_error(
+        self,
+        *,
+        post: Post,
+        storage_engine: MediaStorageEngine,
+        error: MediaStorageProcessingError,
+        db: Session,
+    ) -> None:
+        post.status = PostStatus.error
+        db.add(
+            PublicationLog(
+                post_id=post.id,
+                service=error.service,
+                level=PublicationLogLevel.error,
+                event=error.event,
+                message=error.message,
+                error_text=error.message,
+                api_response={
+                    "reason": error.reason,
+                    "error_type": error.error_type,
+                    "storage_provider": storage_engine.provider,
+                },
+            )
+        )
+
+    def _storage_key(
+        self,
+        *,
+        telegram_chat_id: int,
+        telegram_post_id: int,
+        media: Media,
+    ) -> str:
+        file_unique_id = media.telegram_file_unique_id or f"unknown-{media.sort_order}"
+        return (
+            f"telegram/{telegram_chat_id}/{telegram_post_id}/"
+            f"{media.type.value}-{self._safe_storage_part(file_unique_id)}"
+            f".{self._storage_extension(media)}"
+        )
+
+    def _storage_extension(self, media: Media) -> str:
+        if media.type == MediaType.photo:
+            return "jpg"
+        if media.mime_type == "video/quicktime":
+            return "mov"
+        return "mp4"
+
+    def _default_content_type(self, media_type: MediaType) -> str:
+        if media_type == MediaType.photo:
+            return "image/jpeg"
+        return "video/mp4"
+
+    def _safe_storage_part(self, value: str) -> str:
+        return re.sub(r"[^A-Za-z0-9_.-]", "_", value)
 
     def _refresh_default_seo(
         self,

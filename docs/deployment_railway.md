@@ -32,8 +32,17 @@ Set these variables in Railway. Do not commit real secrets to the repository.
 CONTENT_HUB_ENVIRONMENT=staging
 CONTENT_HUB_DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST/DB?sslmode=require
 CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET=<random webhook secret>
+CONTENT_HUB_TELEGRAM_BOT_TOKEN=
 CONTENT_HUB_ADMIN_API_TOKEN=<random admin token>
 CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS=-1003777865636
+CONTENT_HUB_MEDIA_STORAGE_PROVIDER=s3
+CONTENT_HUB_STORAGE_ENABLED=false
+CONTENT_HUB_S3_ENDPOINT_URL=
+CONTENT_HUB_S3_ACCESS_KEY_ID=
+CONTENT_HUB_S3_SECRET_ACCESS_KEY=
+CONTENT_HUB_S3_BUCKET=
+CONTENT_HUB_S3_REGION=
+CONTENT_HUB_S3_PUBLIC_BASE_URL=
 CONTENT_HUB_TILDA_PUBLIC_KEY=
 CONTENT_HUB_TILDA_SECRET_KEY=
 CONTENT_HUB_TILDA_PROJECT_ID=
@@ -54,6 +63,16 @@ sources.
 Tilda variables are placeholders for a future real connector. The current Tilda
 connector is preview-only and does not call Tilda API. Do not add real Tilda
 keys until a read-only check or a future connector task needs them.
+
+Media storage is disabled by default. With `CONTENT_HUB_STORAGE_ENABLED=false`,
+Content Hub keeps metadata-only media behavior and does not download Telegram
+files or call S3-compatible storage. To enable it later, set a Telegram bot token
+and S3-compatible credentials through Railway variables, then run the manual
+check outside CI:
+
+```bash
+python scripts/media_storage_s3_check.py
+```
 
 ## 4. Run migrations
 

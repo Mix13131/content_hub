@@ -4,7 +4,7 @@
 
 Content Hub is a FastAPI backend for ingesting posts from a Telegram channel and preparing them for automatic publication to a website and social platforms.
 
-Current implementation covers metadata-only core ingestion:
+Current implementation covers core ingestion with optional media storage:
 
 - FastAPI application;
 - `/healthz`;
@@ -15,6 +15,7 @@ Current implementation covers metadata-only core ingestion:
 - text/photo/video `channel_post` and `message` ingestion;
 - optional Telegram chat ID allowlist for webhook ingestion;
 - media metadata for Telegram photo/video posts;
+- optional Media Storage Engine with S3-compatible first implementation;
 - PublicationJob creation for website, Instagram, VK, and Facebook via Instagram sync;
 - DB-only PublicationJob status and retry lifecycle service;
 - Connector Engine foundation with an internal website connector;
@@ -28,8 +29,6 @@ Current implementation covers metadata-only core ingestion:
 
 Not implemented yet:
 
-- Telegram file download;
-- S3-compatible storage;
 - Dramatiq workers;
 - publisher workers;
 - Instagram, VK, Facebook publishing;
@@ -45,7 +44,11 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-MVP media handling is metadata-only: Content Hub stores Telegram `file_id`, `file_unique_id`, dimensions, MIME type, duration, and source Telegram URL. It does not download Telegram files or upload them to S3-compatible storage.
+By default media handling is metadata-only: Content Hub stores Telegram `file_id`,
+`file_unique_id`, dimensions, MIME type, duration, and source Telegram URL.
+Set `CONTENT_HUB_STORAGE_ENABLED=true` to enable the Media Storage Engine. The
+first provider is S3-compatible storage; it downloads media through Telegram Bot
+API and stores externally reachable `file_url` / `storage_key` values.
 
 ## Run Tests
 
@@ -96,7 +99,10 @@ CONTENT_HUB_TILDA_PROJECT_ID=... \
   .venv/bin/python scripts/tilda_api_check.py
 ```
 
-Public post endpoints do not require an admin token and return only posts with `is_public=true` and `status!=error`. Responses include `is_public`, return metadata-only media fields, and do not expose Telegram file identifiers or storage keys.
+Public post endpoints do not require an admin token and return only posts with
+`is_public=true` and `status!=error`. Responses include `is_public` and safe
+media fields such as `file_url`, but do not expose Telegram file identifiers or
+storage keys.
 
 See [docs/postgres_smoke.md](docs/postgres_smoke.md).
 
@@ -126,8 +132,17 @@ Required staging env vars are listed in `.env.example`:
 CONTENT_HUB_ENVIRONMENT=staging
 CONTENT_HUB_DATABASE_URL=
 CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET=
+CONTENT_HUB_TELEGRAM_BOT_TOKEN=
 CONTENT_HUB_ADMIN_API_TOKEN=
 CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS=-1003777865636
+CONTENT_HUB_MEDIA_STORAGE_PROVIDER=s3
+CONTENT_HUB_STORAGE_ENABLED=false
+CONTENT_HUB_S3_ENDPOINT_URL=
+CONTENT_HUB_S3_ACCESS_KEY_ID=
+CONTENT_HUB_S3_SECRET_ACCESS_KEY=
+CONTENT_HUB_S3_BUCKET=
+CONTENT_HUB_S3_REGION=
+CONTENT_HUB_S3_PUBLIC_BASE_URL=
 CONTENT_HUB_TILDA_PUBLIC_KEY=
 CONTENT_HUB_TILDA_SECRET_KEY=
 CONTENT_HUB_TILDA_PROJECT_ID=
@@ -138,6 +153,21 @@ CONTENT_HUB_TILDA_TARGET_PAGE_ID=
 all Telegram `channel_post` and `message` updates. Set one ID or a comma-separated
 list, for example `-1003777865636,-1234567890`, to ignore updates from any other
 Telegram chat with `reason=chat_not_allowed`.
+
+When `CONTENT_HUB_STORAGE_ENABLED=false`, the app keeps the metadata-only
+behavior and does not call Telegram file download or S3-compatible storage. The
+manual S3-compatible check is outside CI:
+
+```bash
+CONTENT_HUB_STORAGE_ENABLED=true \
+CONTENT_HUB_MEDIA_STORAGE_PROVIDER=s3 \
+CONTENT_HUB_S3_ENDPOINT_URL=... \
+CONTENT_HUB_S3_ACCESS_KEY_ID=... \
+CONTENT_HUB_S3_SECRET_ACCESS_KEY=... \
+CONTENT_HUB_S3_BUCKET=... \
+CONTENT_HUB_S3_PUBLIC_BASE_URL=... \
+  .venv/bin/python scripts/media_storage_s3_check.py
+```
 
 ## Run Migrations
 

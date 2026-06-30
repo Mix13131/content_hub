@@ -109,3 +109,6 @@ jobs:
           CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET: ci-telegram-secret
           CONTENT_HUB_ADMIN_API_TOKEN: ci-admin-token
         run: python scripts/tilda_preview_smoke.py
+
+      - name: Run media storage smoke
+        run: python scripts/media_storage_smoke.py

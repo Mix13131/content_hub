@@ -24,8 +24,14 @@ from content_hub.enums import (
     PublicationPlatform,
 )
 from content_hub.models import Media, Post, PublicationJob, PublicationLog
+from content_hub.services.telegram_files import (
+    TelegramDownloadedFile,
+    TelegramFileDownloadError,
+)
 from content_hub.services.telegram_ingestion import TelegramIngestionService
 from content_hub.settings import Settings, get_settings
+from content_hub.storage.base import StorageError, StorageResult
+from content_hub.storage.engine import MediaStorageEngine
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -63,6 +69,69 @@ MVP_PLATFORMS = {
     PublicationPlatform.vk,
     PublicationPlatform.facebook,
 }
+
+
+class FakeStorage:
+    def __init__(
+        self,
+        *,
+        existing_keys: set[str] | None = None,
+        fail_upload: bool = False,
+    ) -> None:
+        self.existing_keys = existing_keys or set()
+        self.fail_upload = fail_upload
+        self.exists_calls: list[str] = []
+        self.upload_calls: list[tuple[str, bytes, str | None]] = []
+
+    def upload(
+        self,
+        *,
+        key: str,
+        content: bytes,
+        content_type: str | None = None,
+    ) -> StorageResult:
+        self.upload_calls.append((key, content, content_type))
+        if self.fail_upload:
+            raise StorageError("secret-like upload failure")
+        self.existing_keys.add(key)
+        return StorageResult(
+            storage_key=key,
+            file_url=self.public_url(key),
+            provider="fake",
+            content_type=content_type,
+            size_bytes=len(content),
+        )
+
+    def delete(self, key: str) -> None:
+        self.existing_keys.discard(key)
+
+    def exists(self, key: str) -> bool:
+        self.exists_calls.append(key)
+        return key in self.existing_keys
+
+    def public_url(self, key: str) -> str:
+        return f"https://cdn.example/{key}"
+
+
+class FakeDownloader:
+    def __init__(
+        self,
+        files: dict[str, TelegramDownloadedFile] | None = None,
+        *,
+        fail: bool = False,
+    ) -> None:
+        self.files = files or {}
+        self.fail = fail
+        self.download_calls: list[str] = []
+
+    def download(self, file_id: str) -> TelegramDownloadedFile:
+        self.download_calls.append(file_id)
+        if self.fail:
+            raise TelegramFileDownloadError("secret-token-in-download-error")
+        try:
+            return self.files[file_id]
+        except KeyError as exc:
+            raise TelegramFileDownloadError("fixture file is missing") from exc
 
 
 def assert_publication_jobs_created(
@@ -860,6 +929,209 @@ def test_repeated_message_webhook_does_not_create_duplicate(
     assert len(db_session.scalars(select(Post)).all()) == 1
     assert len(db_session.scalars(select(Media)).all()) == 1
     assert len(db_session.scalars(select(PublicationJob)).all()) == 4
+
+
+def test_storage_disabled_keeps_metadata_only_behavior(
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_photo_channel_post.json")
+    downloader = FakeDownloader(fail=True)
+
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        telegram_file_downloader=downloader,
+    )
+
+    assert result.created is True
+    assert downloader.download_calls == []
+    media = db_session.scalar(select(Media))
+    assert media is not None
+    assert media.file_url is None
+    assert media.storage_key is None
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.status == PostStatus.queued
+    assert_publication_jobs_created(db_session, post)
+
+
+def test_storage_enabled_uploads_media_and_sets_file_url(
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_photo_channel_post.json")
+    storage = FakeStorage()
+    downloader = FakeDownloader(
+        {
+            "photo-large-file-id": TelegramDownloadedFile(
+                content=b"fake image bytes",
+                file_path="photos/file.jpg",
+                content_type="image/jpeg",
+            )
+        }
+    )
+    engine = MediaStorageEngine("fake", storage)
+
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        storage_engine=engine,
+        telegram_file_downloader=downloader,
+    )
+
+    assert result.created is True
+    assert result.reason is None
+    expected_key = "telegram/-1001234567890/43/photo-photo-large-unique-id.jpg"
+    assert storage.exists_calls == [expected_key]
+    assert storage.upload_calls == [
+        (expected_key, b"fake image bytes", "image/jpeg")
+    ]
+    assert downloader.download_calls == ["photo-large-file-id"]
+
+    media = db_session.scalar(select(Media))
+    assert media is not None
+    assert media.storage_key == expected_key
+    assert media.file_url == f"https://cdn.example/{expected_key}"
+    assert media.mime_type == "image/jpeg"
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.status == PostStatus.queued
+    assert_publication_jobs_created(db_session, post)
+
+
+def test_storage_enabled_skips_upload_when_key_exists(
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_photo_channel_post.json")
+    expected_key = "telegram/-1001234567890/43/photo-photo-large-unique-id.jpg"
+    storage = FakeStorage(existing_keys={expected_key})
+    downloader = FakeDownloader(fail=True)
+    engine = MediaStorageEngine("fake", storage)
+
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        storage_engine=engine,
+        telegram_file_downloader=downloader,
+    )
+
+    assert result.created is True
+    assert storage.exists_calls == [expected_key]
+    assert storage.upload_calls == []
+    assert downloader.download_calls == []
+    media = db_session.scalar(select(Media))
+    assert media is not None
+    assert media.storage_key == expected_key
+    assert media.file_url == f"https://cdn.example/{expected_key}"
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.status == PostStatus.queued
+    assert_publication_jobs_created(db_session, post)
+
+
+def test_storage_upload_error_marks_post_error_without_jobs(
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_photo_channel_post.json")
+    storage = FakeStorage(fail_upload=True)
+    downloader = FakeDownloader(
+        {
+            "photo-large-file-id": TelegramDownloadedFile(
+                content=b"fake image bytes",
+                content_type="image/jpeg",
+            )
+        }
+    )
+
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        storage_engine=MediaStorageEngine("fake", storage),
+        telegram_file_downloader=downloader,
+    )
+
+    assert result.created is True
+    assert result.reason == "media_upload_failed"
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.status == PostStatus.error
+    assert db_session.scalars(select(PublicationJob)).all() == []
+    media = db_session.scalar(select(Media))
+    assert media is not None
+    assert media.storage_key == (
+        "telegram/-1001234567890/43/photo-photo-large-unique-id.jpg"
+    )
+    assert media.file_url is None
+
+    log = db_session.scalar(
+        select(PublicationLog).where(PublicationLog.event == "media_upload_failed")
+    )
+    assert log is not None
+    assert log.service == "storage"
+    assert log.level == PublicationLogLevel.error
+    assert log.error_text == "Media storage upload failed."
+    assert "secret-like upload failure" not in (log.error_text or "")
+
+
+def test_storage_download_error_does_not_log_telegram_token(
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_photo_channel_post.json")
+    storage = FakeStorage()
+    downloader = FakeDownloader(fail=True)
+
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        storage_engine=MediaStorageEngine("fake", storage),
+        telegram_file_downloader=downloader,
+    )
+
+    assert result.created is True
+    assert result.reason == "media_download_failed"
+    post = db_session.scalar(select(Post))
+    assert post is not None
+    assert post.status == PostStatus.error
+    assert db_session.scalars(select(PublicationJob)).all() == []
+
+    log = db_session.scalar(
+        select(PublicationLog).where(PublicationLog.event == "media_download_failed")
+    )
+    assert log is not None
+    assert log.service == "telegram"
+    assert log.level == PublicationLogLevel.error
+    assert log.error_text == "Telegram media download failed."
+    assert "secret-token-in-download-error" not in (log.error_text or "")
+
+
+def test_storage_enabled_video_uses_mp4_storage_key(
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_video_channel_post.json")
+    storage = FakeStorage()
+    downloader = FakeDownloader(
+        {
+            "video-file-id": TelegramDownloadedFile(
+                content=b"fake video bytes",
+                file_path="videos/file.mp4",
+                content_type="video/mp4",
+            )
+        }
+    )
+
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        storage_engine=MediaStorageEngine("fake", storage),
+        telegram_file_downloader=downloader,
+    )
+
+    assert result.created is True
+    media = db_session.scalar(select(Media))
+    assert media is not None
+    assert media.storage_key == "telegram/-1001234567890/44/video-video-unique-id.mp4"
+    assert media.file_url == (
+        "https://cdn.example/telegram/-1001234567890/44/video-video-unique-id.mp4"
+    )
 
 
 def test_publication_job_platform_is_unique_per_post(
