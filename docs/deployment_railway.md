@@ -34,6 +34,10 @@ CONTENT_HUB_DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST/DB?sslmode=requ
 CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET=<random webhook secret>
 CONTENT_HUB_ADMIN_API_TOKEN=<random admin token>
 CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS=-1003777865636
+CONTENT_HUB_TILDA_PUBLIC_KEY=
+CONTENT_HUB_TILDA_SECRET_KEY=
+CONTENT_HUB_TILDA_PROJECT_ID=
+CONTENT_HUB_TILDA_TARGET_PAGE_ID=
 ```
 
 `CONTENT_HUB_DATABASE_URL` should point to Neon or another PostgreSQL-compatible
@@ -46,6 +50,10 @@ other chats are ignored with `reason=chat_not_allowed` and do not create posts,
 media, or publication jobs. Invalid values fail settings validation on startup so
 the deployment shows a configuration error instead of silently accepting all
 sources.
+
+Tilda variables are placeholders for a future real connector. The current Tilda
+connector is preview-only and does not call Tilda API. Do not add real Tilda
+keys until a read-only check or a future connector task needs them.
 
 ## 4. Run migrations
 
@@ -117,6 +125,18 @@ CONTENT_HUB_ADMIN_API_TOKEN=<admin token> \
 
 If `CONTENT_HUB_ADMIN_API_TOKEN` is omitted, the smoke script skips the admin
 endpoint and checks only public endpoints.
+
+Optional read-only Tilda API check, when credentials are available:
+
+```bash
+CONTENT_HUB_TILDA_PUBLIC_KEY=<public key> \
+CONTENT_HUB_TILDA_SECRET_KEY=<secret key> \
+CONTENT_HUB_TILDA_PROJECT_ID=<project id> \
+  python scripts/tilda_api_check.py
+```
+
+This script only calls documented read/export discovery endpoints. It must not
+be used as a deployment healthcheck because it depends on an external service.
 
 ## 7. Telegram webhook later
 
