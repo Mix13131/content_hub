@@ -85,6 +85,17 @@ curl -s https://web-production-6c604.up.railway.app/preview/tilda/{post_id} \
   -H "X-Content-Hub-Admin-Token: ${CONTENT_HUB_ADMIN_API_TOKEN}"
 ```
 
+Tilda API research notes are in [docs/tilda_api_research.md](docs/tilda_api_research.md).
+The optional read-only API check is not part of CI and does not create, update,
+publish, or delete Tilda pages:
+
+```bash
+CONTENT_HUB_TILDA_PUBLIC_KEY=... \
+CONTENT_HUB_TILDA_SECRET_KEY=... \
+CONTENT_HUB_TILDA_PROJECT_ID=... \
+  .venv/bin/python scripts/tilda_api_check.py
+```
+
 Public post endpoints do not require an admin token and return only posts with `is_public=true` and `status!=error`. Responses include `is_public`, return metadata-only media fields, and do not expose Telegram file identifiers or storage keys.
 
 See [docs/postgres_smoke.md](docs/postgres_smoke.md).
@@ -117,6 +128,10 @@ CONTENT_HUB_DATABASE_URL=
 CONTENT_HUB_TELEGRAM_WEBHOOK_SECRET=
 CONTENT_HUB_ADMIN_API_TOKEN=
 CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS=-1003777865636
+CONTENT_HUB_TILDA_PUBLIC_KEY=
+CONTENT_HUB_TILDA_SECRET_KEY=
+CONTENT_HUB_TILDA_PROJECT_ID=
+CONTENT_HUB_TILDA_TARGET_PAGE_ID=
 ```
 
 `CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS` is optional. Leave it empty to accept
