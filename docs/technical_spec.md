@@ -252,17 +252,18 @@ Content Hub хранит только Telegram metadata:
 Требования:
 
 - повторная обработка webhook не должна создавать дубли Media;
-- `file_url` и `storage_key` остаются nullable и в MVP не заполняются;
-- Telegram остается источником медиа для MVP;
-- если в будущем понадобится storage, storage key должен быть стабильным и не конфликтовать при повторном webhook;
-- рекомендуемый будущий формат ключа:
+- `file_url` и `storage_key` остаются nullable, если storage выключен;
+- Telegram остается источником медиа;
+- Media Storage Engine может быть включен отдельно для получения внешних HTTPS URL;
+- storage key должен быть стабильным и не конфликтовать при повторном webhook;
+- рекомендуемый формат ключа:
 
 ```text
-telegram/{telegram_chat_id}/{telegram_post_id}/{sort_order}_{telegram_file_unique_id}.{ext}
+telegram/{telegram_chat_id}/{telegram_post_id}/{media_type}-{telegram_file_unique_id}.{ext}
 ```
 
-- для будущей публикации в Instagram и VK может понадобиться внешний URL медиа;
-- если в будущем используется signed URL, срок жизни должен покрывать всю публикацию и retries.
+- для публикации в Instagram и VK нужен внешний URL медиа;
+- если используется signed URL, срок жизни должен покрывать всю публикацию и retries.
 
 ## 9. Publication queue
 
@@ -347,6 +348,15 @@ SEO-задел:
 - создание контейнера и публикация должны логироваться как отдельные шаги;
 - при ошибке Instagram не блокирует Website и VK;
 - успешная публикация Instagram запускает обновление статуса Facebook via Instagram sync.
+
+Текущая реализация Connector MVP:
+
+- поддерживает только один фото-пост с `Media.file_url`, начинающимся с `https://`;
+- создает media container и публикует container через Meta Graph API;
+- сохраняет Instagram media ID в `PublicationJob.external_post_id`;
+- сохраняет permalink в `external_url`, если Meta вернул его после публикации;
+- не поддерживает carousel, video, Reels, Stories и Facebook sync;
+- не вызывает Facebook API напрямую.
 
 ## 12. Facebook
 

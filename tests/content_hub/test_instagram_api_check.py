@@ -47,6 +47,25 @@ def test_build_api_url_allows_only_read_only_targets() -> None:
     )
 
 
+def test_build_api_url_accepts_versioned_graph_base_url() -> None:
+    config = instagram_api_check.InstagramApiConfig(
+        access_token="token",
+        instagram_account_id="17841400000000000",
+        graph_api_base_url="https://graph.facebook.com/v25.0",
+    )
+
+    url = instagram_api_check.build_api_url(
+        "instagram_account",
+        config,
+        "17841400000000000",
+    )
+
+    assert url == (
+        "https://graph.facebook.com/v25.0/17841400000000000"
+        "?access_token=token"
+    )
+
+
 def test_build_api_url_rejects_write_like_targets() -> None:
     config = instagram_api_check.InstagramApiConfig(
         access_token="token",

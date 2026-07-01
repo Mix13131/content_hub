@@ -18,7 +18,8 @@ Current implementation covers core ingestion with optional media storage:
 - optional Media Storage Engine with S3-compatible first implementation;
 - PublicationJob creation for website, Instagram, VK, and Facebook via Instagram sync;
 - DB-only PublicationJob status and retry lifecycle service;
-- Connector Engine foundation with an internal website connector;
+- Connector Engine foundation with internal website, Tilda preview, and
+  Instagram single-photo connectors;
 - minimal token-protected admin API endpoints for PublicationJob lifecycle checks;
 - token-protected admin endpoints to run a PublicationJob manually through the Connector Engine;
 - read-only admin API endpoints for Post, Media, PublicationJob, and PublicationLog inspection;
@@ -31,7 +32,8 @@ Not implemented yet:
 
 - Dramatiq workers;
 - publisher workers;
-- Instagram, VK, Facebook publishing;
+- Instagram carousel/video/Reels publishing;
+- VK and Facebook publishing;
 - admin panel;
 - AI, Stories, WhatsApp.
 
@@ -99,6 +101,38 @@ CONTENT_HUB_TILDA_PROJECT_ID=... \
   .venv/bin/python scripts/tilda_api_check.py
 ```
 
+Instagram Connector MVP supports only single-photo feed posts. It requires an
+existing `Media.file_url` with a public HTTPS URL reachable by Meta. The
+connector creates an Instagram media container, publishes it, and stores the
+returned Instagram media ID plus permalink when Meta returns one. Carousel,
+video, Reels, Stories, and Facebook sync are intentionally outside this MVP.
+
+Required Instagram env vars:
+
+```text
+CONTENT_HUB_INSTAGRAM_ACCESS_TOKEN=
+CONTENT_HUB_INSTAGRAM_ACCOUNT_ID=
+CONTENT_HUB_FACEBOOK_PAGE_ID=
+CONTENT_HUB_META_GRAPH_API_BASE_URL=https://graph.facebook.com/v25.0
+```
+
+Manual run through the existing admin connector endpoint:
+
+```bash
+curl -s -X POST https://hub.zubdakosti.ru/admin/posts/{post_id}/run/instagram \
+  -H "X-Content-Hub-Admin-Token: ${CONTENT_HUB_ADMIN_API_TOKEN}"
+```
+
+The fake Instagram connector smoke is part of CI and does not call Meta. The
+read-only Instagram account check remains optional and outside CI:
+
+```bash
+CONTENT_HUB_INSTAGRAM_ACCESS_TOKEN=... \
+CONTENT_HUB_INSTAGRAM_ACCOUNT_ID=... \
+CONTENT_HUB_FACEBOOK_PAGE_ID=... \
+  .venv/bin/python scripts/instagram_api_check.py
+```
+
 Public post endpoints do not require an admin token and return only posts with
 `is_public=true` and `status!=error`. Responses include `is_public` and safe
 media fields such as `file_url`, but do not expose Telegram file identifiers or
@@ -147,6 +181,10 @@ CONTENT_HUB_TILDA_PUBLIC_KEY=
 CONTENT_HUB_TILDA_SECRET_KEY=
 CONTENT_HUB_TILDA_PROJECT_ID=
 CONTENT_HUB_TILDA_TARGET_PAGE_ID=
+CONTENT_HUB_INSTAGRAM_ACCESS_TOKEN=
+CONTENT_HUB_INSTAGRAM_ACCOUNT_ID=
+CONTENT_HUB_FACEBOOK_PAGE_ID=
+CONTENT_HUB_META_GRAPH_API_BASE_URL=https://graph.facebook.com/v25.0
 ```
 
 `CONTENT_HUB_ALLOWED_TELEGRAM_CHAT_IDS` is optional. Leave it empty to accept

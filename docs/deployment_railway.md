@@ -47,6 +47,10 @@ CONTENT_HUB_TILDA_PUBLIC_KEY=
 CONTENT_HUB_TILDA_SECRET_KEY=
 CONTENT_HUB_TILDA_PROJECT_ID=
 CONTENT_HUB_TILDA_TARGET_PAGE_ID=
+CONTENT_HUB_INSTAGRAM_ACCESS_TOKEN=
+CONTENT_HUB_INSTAGRAM_ACCOUNT_ID=
+CONTENT_HUB_FACEBOOK_PAGE_ID=
+CONTENT_HUB_META_GRAPH_API_BASE_URL=https://graph.facebook.com/v25.0
 ```
 
 `CONTENT_HUB_DATABASE_URL` should point to Neon or another PostgreSQL-compatible
@@ -63,6 +67,11 @@ sources.
 Tilda variables are placeholders for a future real connector. The current Tilda
 connector is preview-only and does not call Tilda API. Do not add real Tilda
 keys until a read-only check or a future connector task needs them.
+
+Instagram variables are required only for real Instagram connector runs. The
+current Instagram Connector MVP supports single-photo posts only and requires a
+public HTTPS `Media.file_url` reachable by Meta. Keep these variables empty until
+the Meta App, access token, Instagram Account ID, and media storage are ready.
 
 Media storage is disabled by default. With `CONTENT_HUB_STORAGE_ENABLED=false`,
 Content Hub keeps metadata-only media behavior and does not download Telegram
@@ -156,6 +165,19 @@ CONTENT_HUB_TILDA_PROJECT_ID=<project id> \
 
 This script only calls documented read/export discovery endpoints. It must not
 be used as a deployment healthcheck because it depends on an external service.
+
+Optional read-only Instagram API check, when credentials are available:
+
+```bash
+CONTENT_HUB_INSTAGRAM_ACCESS_TOKEN=<access token> \
+CONTENT_HUB_INSTAGRAM_ACCOUNT_ID=<instagram account id> \
+CONTENT_HUB_FACEBOOK_PAGE_ID=<facebook page id> \
+  python scripts/instagram_api_check.py
+```
+
+This script does not create containers, publish media, upload files, or delete
+anything. It must not be used as a deployment healthcheck because it depends on
+Meta.
 
 ## 7. Telegram webhook later
 

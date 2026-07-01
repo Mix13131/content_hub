@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     s3_bucket: str | None = None
     s3_region: str | None = None
     s3_public_base_url: str | None = None
+    instagram_access_token: str | None = None
+    instagram_account_id: str | None = None
+    facebook_page_id: str | None = None
+    meta_graph_api_base_url: str = "https://graph.facebook.com/v25.0"
 
     @field_validator("allowed_telegram_chat_ids")
     @classmethod
@@ -50,6 +54,18 @@ class Settings(BaseSettings):
         if not provider:
             raise ValueError("CONTENT_HUB_MEDIA_STORAGE_PROVIDER must not be empty")
         return provider
+
+    @field_validator("meta_graph_api_base_url")
+    @classmethod
+    def validate_meta_graph_api_base_url(cls, value: str) -> str:
+        base_url = value.strip().rstrip("/")
+        if not base_url:
+            raise ValueError("CONTENT_HUB_META_GRAPH_API_BASE_URL must not be empty")
+        if not base_url.startswith(("https://", "http://")):
+            raise ValueError(
+                "CONTENT_HUB_META_GRAPH_API_BASE_URL must be an HTTP(S) URL"
+            )
+        return base_url
 
     @property
     def allowed_telegram_chat_id_set(self) -> frozenset[int]:

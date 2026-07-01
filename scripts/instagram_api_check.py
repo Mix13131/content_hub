@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ from urllib.request import Request, urlopen
 
 
 GRAPH_API_VERSION = "v25.0"
-GRAPH_API_BASE_URL = "https://graph.facebook.com"
+GRAPH_API_BASE_URL = "https://graph.facebook.com/v25.0"
 TIMEOUT_SECONDS = 15
 READ_ONLY_TARGETS = frozenset({"instagram_account", "facebook_page"})
 
@@ -69,7 +70,11 @@ def build_api_url(
 
     base_url = config.graph_api_base_url.rstrip("/")
     version = config.graph_api_version.strip().strip("/")
-    return f"{base_url}/{version}/{object_id.strip()}?{urlencode(query_params)}"
+    if re.search(r"/v\d+\.\d+$", base_url):
+        versioned_base_url = base_url
+    else:
+        versioned_base_url = f"{base_url}/{version}"
+    return f"{versioned_base_url}/{object_id.strip()}?{urlencode(query_params)}"
 
 
 def request_json(
