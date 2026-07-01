@@ -1,8 +1,9 @@
 # Instagram API research
 
-This note captures the first technical discovery for a future Instagram
-Connector. It intentionally does not implement publishing, media uploads, or
-worker behavior.
+This note captures the technical discovery for the Instagram Connector. The
+project now has a first connector MVP for single-photo publishing, but this
+document remains the source of constraints and open questions for albums,
+videos/Reels, Stories, and production Meta setup.
 
 Official sources checked:
 
@@ -52,7 +53,9 @@ Important details for MVP planning:
 
 ## Main Content Hub risk
 
-Content Hub currently stores Telegram media as metadata only:
+Instagram publishing requires media that Meta can fetch over public HTTPS.
+Content Hub can still run in metadata-only mode when
+`CONTENT_HUB_STORAGE_ENABLED=false`:
 
 - `telegram_file_id`;
 - `telegram_file_unique_id`;
@@ -60,17 +63,18 @@ Content Hub currently stores Telegram media as metadata only:
 - MIME type;
 - duration;
 - no downloaded file;
-- no S3/R2 public URL.
+- no public S3/R2 URL.
 
-That is not enough for Instagram publishing. The Instagram connector cannot
-publish real photo/video posts until Content Hub has a media storage step that:
+That mode is not enough for Instagram publishing. The Instagram connector can
+publish only posts whose `Media.file_url` is already a stable public HTTPS URL.
+For production this means enabling and validating a media storage step that:
 
 1. downloads media from Telegram;
 2. stores it in S3/R2 or another externally reachable storage;
 3. produces stable HTTPS URLs reachable by Meta;
 4. keeps URLs valid long enough for retries and media processing.
 
-## Minimal publish flow for future MVP
+## Minimal publish flow for current single-photo MVP
 
 Single image:
 
@@ -82,7 +86,17 @@ Single image:
 3. `POST /{ig-user-id}/media_publish`
    - `creation_id=<container id>`;
    - access token.
-4. Store returned Instagram media ID and external URL if available.
+4. Optionally read permalink for the returned media ID.
+5. Store returned Instagram media ID and external URL if available.
+
+Implemented MVP scope:
+
+- supported: one photo with `Media.file_url` starting with `https://`;
+- unsupported: no media, multiple media/carousel, video/Reels, Stories;
+- missing credentials fail with `INSTAGRAM_NOT_CONFIGURED`;
+- missing public media URL fails with `INSTAGRAM_MEDIA_URL_REQUIRED`;
+- Meta API/rate-limit/network errors are captured as controlled
+  `INSTAGRAM_API_ERROR` job failures or retries.
 
 Carousel:
 
@@ -112,6 +126,7 @@ Environment placeholders:
 CONTENT_HUB_INSTAGRAM_ACCESS_TOKEN=
 CONTENT_HUB_INSTAGRAM_ACCOUNT_ID=
 CONTENT_HUB_FACEBOOK_PAGE_ID=
+CONTENT_HUB_META_GRAPH_API_BASE_URL=https://graph.facebook.com/v25.0
 ```
 
 Operationally, the project also needs:
@@ -156,15 +171,14 @@ It must not:
 - upload files;
 - delete anything.
 
-## Open questions before real connector
+## Open questions before broader connector rollout
 
 - Is the client's Instagram account Business or Creator?
 - Is it linked to the intended Facebook Page?
 - Which token type will be used for production, and how will it be rotated?
 - Which exact permissions are granted after app review?
-- Will the first MVP support only single images, or also carousels and Reels?
+- Which milestone should add carousels and Reels after single-photo MVP?
 - Which storage will provide public HTTPS media URLs: Cloudflare R2, Supabase
   Storage, or another CDN-backed option?
 - How long should signed URLs live to cover container creation, media processing,
   retries, and manual retry from admin?
-

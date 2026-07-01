@@ -318,7 +318,7 @@ def test_run_unknown_connector_job_returns_controlled_response(
     db_session: Session,
 ) -> None:
     _, jobs = create_post_with_jobs(db_session)
-    job = jobs[PublicationPlatform.instagram]
+    job = jobs[PublicationPlatform.vk]
 
     response = admin_client.post(
         f"/admin/jobs/{job.id}/run",
@@ -330,7 +330,7 @@ def test_run_unknown_connector_job_returns_controlled_response(
     assert body["status"] == PlatformStatus.Retry.value
     assert body["attempt_count"] == 1
     assert body["last_error_code"] == "CONNECTOR_NOT_FOUND"
-    assert body["last_error_message"] == "Connector is not registered: instagram"
+    assert body["last_error_message"] == "Connector is not registered: vk"
 
 
 def test_forbidden_transition_returns_409(

@@ -166,7 +166,7 @@ def test_connector_engine_unknown_connector_is_controlled_retry(
     db_session: Session,
 ) -> None:
     post, jobs = create_post_with_jobs(db_session)
-    job = jobs[PublicationPlatform.instagram]
+    job = jobs[PublicationPlatform.vk]
 
     ConnectorEngine().publish_job(job.id, db_session)
 
@@ -176,13 +176,13 @@ def test_connector_engine_unknown_connector_is_controlled_retry(
     assert job.attempt_count == 1
     assert job.next_retry_at is not None
     assert job.last_error_code == "CONNECTOR_NOT_FOUND"
-    assert job.last_error_message == "Connector is not registered: instagram"
+    assert job.last_error_message == "Connector is not registered: vk"
     assert job.last_api_response == {
         "mode": "dry_run",
-        "connector": "instagram",
-        "platform": "instagram",
+        "connector": "vk",
+        "platform": "vk",
     }
-    assert post.instagram_status == PlatformStatus.Retry
+    assert post.vk_status == PlatformStatus.Retry
     assert post.status == PostStatus.queued
 
     logs = logs_for_job(db_session, job)

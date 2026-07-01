@@ -112,3 +112,6 @@ jobs:
 
       - name: Run media storage smoke
         run: python scripts/media_storage_smoke.py
+
+      - name: Run Instagram connector smoke
+        run: python scripts/instagram_connector_smoke.py
