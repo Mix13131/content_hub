@@ -43,9 +43,11 @@ class FakeStorage:
 class FakeS3Client:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.put_object_calls: list[dict[str, object]] = []
         self.deleted: list[str] = []
 
     def put_object(self, **kwargs: object) -> None:
+        self.put_object_calls.append(kwargs)
         key = str(kwargs["Key"])
         self.objects[key] = bytes(kwargs["Body"])  # type: ignore[arg-type]
 
@@ -132,6 +134,14 @@ def test_s3_compatible_storage_uses_path_style_public_url() -> None:
     assert result.file_url == (
         "https://storage.example/content-hub/telegram/1/2/photo-a.jpg"
     )
+    assert client.put_object_calls == [
+        {
+            "Bucket": "content-hub",
+            "Key": "telegram/1/2/photo-a.jpg",
+            "Body": b"image",
+            "ContentType": "image/jpeg",
+        }
+    ]
     assert storage.exists("telegram/1/2/photo-a.jpg") is True
 
     storage.delete("telegram/1/2/photo-a.jpg")

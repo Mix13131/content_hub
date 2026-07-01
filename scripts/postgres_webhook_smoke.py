@@ -218,6 +218,7 @@ def verify_media(db: Session, post: Post, message: dict[str, Any]) -> None:
         assert media.type == MediaType.photo
         assert media.telegram_file_id == "photo-large-file-id"
         assert media.telegram_file_unique_id == "photo-large-unique-id"
+        assert media.mime_type == "image/jpeg"
         assert media.file_url is None
         assert media.storage_key is None
         return

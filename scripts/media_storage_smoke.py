@@ -27,7 +27,7 @@ FIXTURES_DIR = PROJECT_ROOT / "tests" / "content_hub" / "fixtures"
 
 class FakeStorage:
     def __init__(self) -> None:
-        self.uploaded: list[str] = []
+        self.uploaded: list[tuple[str, str | None]] = []
 
     def upload(
         self,
@@ -36,7 +36,7 @@ class FakeStorage:
         content: bytes,
         content_type: str | None = None,
     ) -> StorageResult:
-        self.uploaded.append(key)
+        self.uploaded.append((key, content_type))
         return StorageResult(
             storage_key=key,
             file_url=self.public_url(key),
@@ -64,7 +64,7 @@ class FakeTelegramDownloader:
         return TelegramDownloadedFile(
             content=b"fake image bytes",
             file_path="photos/content-hub.jpg",
-            content_type="image/jpeg",
+            content_type="application/octet-stream",
         )
 
 
@@ -101,8 +101,9 @@ def main() -> int:
             )
             assert media.storage_key == expected_key
             assert media.file_url == f"https://cdn.example/{expected_key}"
+            assert media.mime_type == "image/jpeg"
             assert downloader.downloaded == ["photo-large-file-id"]
-            assert storage.uploaded == [expected_key]
+            assert storage.uploaded == [(expected_key, "image/jpeg")]
             assert len(db.scalars(select(PublicationJob)).all()) == 4
     finally:
         Base.metadata.drop_all(engine)

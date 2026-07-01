@@ -30,6 +30,8 @@ from content_hub.storage.engine import MediaStorageEngine
 
 
 logger = logging.getLogger(__name__)
+PHOTO_MIME_TYPE = "image/jpeg"
+GENERIC_BINARY_MIME_TYPE = "application/octet-stream"
 
 
 @dataclass(frozen=True)
@@ -425,6 +427,7 @@ class TelegramIngestionService:
                         photo.get("file_unique_id")
                     ),
                     sort_order=sort_order_start + len(media_records),
+                    mime_type=PHOTO_MIME_TYPE,
                     size_bytes=self._optional_int(photo.get("file_size")),
                     width=self._optional_int(photo.get("width")),
                     height=self._optional_int(photo.get("height")),
@@ -508,10 +511,9 @@ class TelegramIngestionService:
                     error_type=type(exc).__name__,
                 ) from exc
 
-            content_type = (
-                downloaded_file.content_type
-                or media.mime_type
-                or self._default_content_type(media.type)
+            content_type = self._upload_content_type(
+                media=media,
+                downloaded_content_type=downloaded_file.content_type,
             )
             try:
                 result = storage_engine.upload(
@@ -583,8 +585,26 @@ class TelegramIngestionService:
 
     def _default_content_type(self, media_type: MediaType) -> str:
         if media_type == MediaType.photo:
-            return "image/jpeg"
+            return PHOTO_MIME_TYPE
         return "video/mp4"
+
+    def _upload_content_type(
+        self,
+        *,
+        media: Media,
+        downloaded_content_type: str | None,
+    ) -> str:
+        if media.type == MediaType.photo:
+            return PHOTO_MIME_TYPE
+
+        if media.mime_type:
+            return media.mime_type
+        if (
+            downloaded_content_type
+            and downloaded_content_type.lower() != GENERIC_BINARY_MIME_TYPE
+        ):
+            return downloaded_content_type
+        return self._default_content_type(media.type)
 
     def _safe_storage_part(self, value: str) -> str:
         return re.sub(r"[^A-Za-z0-9_.-]", "_", value)
