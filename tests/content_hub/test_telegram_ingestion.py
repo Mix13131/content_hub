@@ -597,6 +597,7 @@ def test_photo_channel_post_creates_post_and_largest_photo_media(
     assert media.storage_key is None
     assert media.telegram_file_id == "photo-large-file-id"
     assert media.telegram_file_unique_id == "photo-large-unique-id"
+    assert media.mime_type == "image/jpeg"
     assert media.sort_order == 0
     assert media.width == 1280
     assert media.height == 960
@@ -636,6 +637,7 @@ def test_photo_message_creates_post_and_largest_photo_media(
     assert media.storage_key is None
     assert media.telegram_file_id == "message-photo-large-file-id"
     assert media.telegram_file_unique_id == "message-photo-large-unique-id"
+    assert media.mime_type == "image/jpeg"
     assert media.sort_order == 0
     assert media.width == 1280
     assert media.height == 960
@@ -949,6 +951,7 @@ def test_storage_disabled_keeps_metadata_only_behavior(
     assert media is not None
     assert media.file_url is None
     assert media.storage_key is None
+    assert media.mime_type == "image/jpeg"
     post = db_session.scalar(select(Post))
     assert post is not None
     assert post.status == PostStatus.queued
@@ -998,6 +1001,40 @@ def test_storage_enabled_uploads_media_and_sets_file_url(
     assert_publication_jobs_created(db_session, post)
 
 
+def test_storage_enabled_photo_uses_jpeg_when_download_is_octet_stream(
+    db_session: Session,
+) -> None:
+    payload = load_fixture("telegram_photo_channel_post.json")
+    storage = FakeStorage()
+    downloader = FakeDownloader(
+        {
+            "photo-large-file-id": TelegramDownloadedFile(
+                content=b"fake image bytes",
+                file_path="photos/file.jpg",
+                content_type="application/octet-stream",
+            )
+        }
+    )
+
+    result = TelegramIngestionService().ingest_update(
+        payload,
+        db_session,
+        storage_engine=MediaStorageEngine("fake", storage),
+        telegram_file_downloader=downloader,
+    )
+
+    assert result.created is True
+    expected_key = "telegram/-1001234567890/43/photo-photo-large-unique-id.jpg"
+    assert storage.upload_calls == [
+        (expected_key, b"fake image bytes", "image/jpeg")
+    ]
+
+    media = db_session.scalar(select(Media))
+    assert media is not None
+    assert media.storage_key == expected_key
+    assert media.mime_type == "image/jpeg"
+
+
 def test_storage_enabled_skips_upload_when_key_exists(
     db_session: Session,
 ) -> None:
@@ -1022,6 +1059,7 @@ def test_storage_enabled_skips_upload_when_key_exists(
     assert media is not None
     assert media.storage_key == expected_key
     assert media.file_url == f"https://cdn.example/{expected_key}"
+    assert media.mime_type == "image/jpeg"
     post = db_session.scalar(select(Post))
     assert post is not None
     assert post.status == PostStatus.queued
@@ -1126,6 +1164,13 @@ def test_storage_enabled_video_uses_mp4_storage_key(
     )
 
     assert result.created is True
+    assert storage.upload_calls == [
+        (
+            "telegram/-1001234567890/44/video-video-unique-id.mp4",
+            b"fake video bytes",
+            "video/mp4",
+        )
+    ]
     media = db_session.scalar(select(Media))
     assert media is not None
     assert media.storage_key == "telegram/-1001234567890/44/video-video-unique-id.mp4"
